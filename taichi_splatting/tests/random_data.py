@@ -88,12 +88,16 @@ def random_2d_gaussians(n, image_size:Tuple[int, int], scale_factor=1.0, alpha_r
   low, high = alpha_range
   alpha = torch.rand(n) * (high - low) + low
 
+  beta = torch.full_like(alpha, 0.5)
+
   return Gaussians2D(
     position=position,
     depth=depth,
     log_scaling=torch.log(scaling),
     rotation=rotation,
     alpha_logit=torch_proj.inverse_sigmoid(alpha),
+    beta=beta,
+
     feature=torch.rand(n, 3),
     batch_size=(n,)
   )

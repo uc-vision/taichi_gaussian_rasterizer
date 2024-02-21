@@ -161,7 +161,7 @@ def backward_kernel(config: RasterConfig,
 
           # Could factor this out and only compute grad if needed
           # however, it does not seem to make any difference
-          uv, uv_conic, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
+          uv, uv_conic, point_alpha, beta = Gaussian2D.unpack(tile_point[in_group_idx])
 
           grad_point = Gaussian2D.vec(0.0)
           grad_feature = feature_vec(0.0)
@@ -171,7 +171,7 @@ def backward_kernel(config: RasterConfig,
           for i, offset in ti.static(pixel_tile):
             pixel = ti.cast(pixel_base, ti.f32) + vec2(offset) + 0.5
 
-            gaussian_alpha, dp_dmean, dp_dconic = conic_pdf_with_grad(pixel, uv, uv_conic)
+            gaussian_alpha, dp_dmean, dp_dconic, dp_dbeta = conic_pdf_with_grad(pixel, uv, uv_conic, beta)
             
             alpha = point_alpha * gaussian_alpha
             pixel_grad = (alpha >= ti.static(config.alpha_threshold)) and (point_index <= last_point_pixel[i])      
@@ -198,6 +198,7 @@ def backward_kernel(config: RasterConfig,
               grad_point += alpha_grad * Gaussian2D.to_vec(
                   point_alpha * dp_dmean, 
                   point_alpha * dp_dconic,
+                  point_alpha * dp_dbeta,
                   gaussian_alpha)
 
 

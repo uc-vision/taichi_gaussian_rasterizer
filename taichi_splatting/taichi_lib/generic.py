@@ -31,6 +31,7 @@ def make_library(dtype=ti.f32):
       uv        : vec2
       uv_conic  : vec3
       alpha   : dtype
+      beta   : dtype
 
 
 
@@ -40,6 +41,7 @@ def make_library(dtype=ti.f32):
       log_scaling : vec3
       rotation    : vec4
       alpha_logit : dtype
+      beta     : dtype
 
       @ti.func
       def alpha(self):
@@ -55,21 +57,21 @@ def make_library(dtype=ti.f32):
 
 
   @ti.func
-  def to_vec_g2d(uv:vec2, uv_conic:vec3, alpha:dtype) -> vec_g2d:
-    return vec_g2d(*uv, *uv_conic, alpha)
+  def to_vec_g2d(uv:vec2, uv_conic:vec3, alpha:dtype, beta:dtype) -> vec_g2d:
+    return vec_g2d(*uv, *uv_conic, alpha, beta)
 
   @ti.func
-  def to_vec_g3d(position:vec3, log_scaling:vec3, rotation:vec4, alpha_logit:dtype) -> vec_g3d:
-    return vec_g3d(*position, *log_scaling, *rotation, alpha_logit)
+  def to_vec_g3d(position:vec3, log_scaling:vec3, rotation:vec4, alpha_logit:dtype, beta:dtype) -> vec_g3d:
+    return vec_g3d(*position, *log_scaling, *rotation, alpha_logit, beta)
 
 
   @ti.func
   def unpack_vec_g3d(vec:vec_g3d) -> Gaussian3D:
-    return vec[0:3], vec[3:6], vec[6:10], vec[10]
+    return vec[0:3], vec[3:6], vec[6:10], vec[10], vec[11]
 
   @ti.func
   def unpack_vec_g2d(vec:vec_g2d) -> Gaussian2D:
-    return vec[0:2], vec[2:5], vec[5]
+    return vec[0:2], vec[2:5], vec[5], vec[6]
 
   @ti.func
   def get_position_g3d(vec:vec_g3d) -> vec3:
@@ -78,17 +80,21 @@ def make_library(dtype=ti.f32):
 
   @ti.func
   def from_vec_g3d(vec:vec_g3d) -> Gaussian3D:
-    return Gaussian3D(vec[0:3], vec[3:6], vec[6:10], vec[10])
+    return Gaussian3D(vec[0:3], vec[3:6], vec[6:10], vec[10], vec[11])
 
   @ti.func
   def from_vec_g2d(vec:vec_g2d) -> Gaussian2D:
-    return Gaussian2D(vec[0:2], vec[2:5], vec[5])
+    return Gaussian2D(vec[0:2], vec[2:5], vec[5], vec[6])
 
 
   @ti.func
   def unpack_activate_g3d(vec:vec_g3d):
-    position, log_scaling, rotation, alpha_logit = unpack_vec_g3d(vec)
-    return position, ti.exp(log_scaling), ti.math.normalize(rotation), sigmoid(alpha_logit)
+    position, log_scaling, rotation, alpha_logit, beta = unpack_vec_g3d(vec)
+    return position, ti.exp(log_scaling), ti.math.normalize(rotation), sigmoid(alpha_logit), 0.5 + softplus(beta) 
+
+  @ti.func
+  def softplus(x):
+    return ti.log(1 + ti.exp(x))
 
 
   @ti.func
@@ -280,17 +286,46 @@ def make_library(dtype=ti.f32):
       return radii_from_cov(inverse_cov(conic))
 
 
+  # @ti.func
+  # def conic_pdf(xy: vec2, uv: vec2, uv_conic: vec3) -> dtype:
+  #     dx, dy = xy - uv
+  #     a, b, c = uv_conic
+
+  #     p = ti.exp(-0.5 * (dx**2 * a + dy**2 * c) - dx * dy * b)
+  #     return p
+
+
+  # @ti.func
+  # def conic_pdf_with_grad(xy: vec2, uv: vec2, uv_conic: vec3):
+  #     d = xy - uv
+  #     a, b, c = uv_conic
+
+  #     dx2 = d.x**2
+  #     dy2 = d.y**2
+  #     dxdy = d.x * d.y
+      
+  #     p = ti.exp(-0.5 * (dx2 * a + dy2 * c) - dxdy * b)
+  #     dp_duv = vec2(
+  #         (b * d.y - a * (uv.x - xy.x)) * p,
+  #         (b * d.x - c * (uv.y - xy.y)) * p
+  #     )
+  #     dp_dconic = vec3(-0.5 * dx2 * p, -dxdy * p, -0.5 * dy2 * p)
+
+  #     return p, dp_duv, dp_dconic
+
   @ti.func
-  def conic_pdf(xy: vec2, uv: vec2, uv_conic: vec3) -> dtype:
+  def conic_pdf(xy: vec2, uv: vec2, uv_conic: vec3, beta:ti.template()) -> dtype:
       dx, dy = xy - uv
       a, b, c = uv_conic
 
-      p = ti.exp(-0.5 * (dx**2 * a + dy**2 * c) - dx * dy * b)
+      inner =  (0.5 * (dx**2 * a + dy**2 * c) - dx * dy * b) 
+      p = ti.exp(-(inner ** beta))
+
       return p
 
 
   @ti.func
-  def conic_pdf_with_grad(xy: vec2, uv: vec2, uv_conic: vec3):
+  def conic_pdf_with_grad(xy: vec2, uv: vec2, uv_conic: vec3, beta:ti.template()):
       d = xy - uv
       a, b, c = uv_conic
 
@@ -298,32 +333,25 @@ def make_library(dtype=ti.f32):
       dy2 = d.y**2
       dxdy = d.x * d.y
       
-      p = ti.exp(-0.5 * (dx2 * a + dy2 * c) - dxdy * b)
+      inner =  (0.5 * (dx2 * a + dy2 * c) - dxdy * b) 
+      z = inner ** beta
+      p = ti.exp(-z)
+
+      d_inner = z * (p / inner)
       dp_duv = vec2(
-          (b * d.y - 0.5 * a * (2 * uv.x - 2 * xy.x)) * p,
-          (b * d.x - 0.5 * c * (2 * uv.y - 2 * xy.y)) * p
+          (b * d.y - a * (uv.x - xy.x)) * d_inner,
+          (b * d.x - c * (uv.y - xy.y)) * d_inner
       )
-      dp_dconic = vec3(-0.5 * dx2 * p, -dxdy * p, -0.5 * dy2 * p)
-
-      return p, dp_duv, dp_dconic
-
-
-  @ti.func
-  def conic_grad(p: ti.f32, xy: vec2, uv: vec2, uv_conic: vec3):
-      d = xy - uv
-      a, b, c = uv_conic
-
-      dx2 = d.x**2
-      dy2 = d.y**2
-      dxdy = d.x * d.y
       
-      dp_duv = vec2(
-          (b * d.y - 0.5 * a * (2 * uv.x - 2 * xy.x)) * p,
-          (b * d.x - 0.5 * c * (2 * uv.y - 2 * xy.y)) * p
-      )
-      dp_dconic = vec3(-0.5 * dx2 * p, -dxdy * p, -0.5 * dy2 * p)
+      dp_dconic = vec3(
+          -0.5 * dx2 * d_inner,
+          -dxdy * d_inner,
+          -0.5 * dy2 * d_inner)
 
-      return dp_duv, dp_dconic
+      dp_dbeta = -z * ti.log(inner) * p
+      return p, dp_duv, dp_dconic, dp_dbeta
+
+
 
 
   @ti.func

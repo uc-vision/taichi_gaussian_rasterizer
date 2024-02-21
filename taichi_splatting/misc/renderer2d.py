@@ -25,10 +25,11 @@ def project_gaussians2d(points: Gaussians2D) -> torch.Tensor:
          
     """
     alpha = torch.sigmoid(points.alpha_logit)
+    beta = 0.5 + F.softplus(points.beta)
     inv_cov = torch.inverse(point_covariance(points))
 
     conic = torch.stack([inv_cov[..., 0, 0], inv_cov[..., 0, 1], inv_cov[..., 1, 1]], dim=-1)
-    return torch.cat([points.position, conic, alpha.unsqueeze(1)], dim=-1)  
+    return torch.cat([points.position, conic, alpha.unsqueeze(1), beta.unsqueeze(1)], dim=-1)  
     
 
 

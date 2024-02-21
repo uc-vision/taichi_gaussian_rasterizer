@@ -3,6 +3,7 @@ from beartype.typing import Tuple
 from beartype import beartype
 from tensordict import tensorclass
 import torch
+import torch.nn.functional as F
 
   
 @beartype
@@ -41,6 +42,8 @@ class Gaussians3D():
   log_scaling   : torch.Tensor # 3  - scale = exp(log_scalining) 
   rotation      : torch.Tensor # 4  - quaternion wxyz
   alpha_logit   : torch.Tensor # 1  - alpha = sigmoid(alpha_logit)
+  beta          : torch.Tensor # 1  - beta (1/2 * gaussian exponent)
+
   feature      : torch.Tensor # (any rgb (3), spherical harmonics (3x16) etc)
 
 
@@ -49,10 +52,11 @@ class Gaussians3D():
     assert self.log_scaling.shape[1] == 3, f"Expected shape (N, 3), got {self.log_scaling.shape}"
     assert self.rotation.shape[1] == 4, f"Expected shape (N, 4), got {self.rotation.shape}"
     assert self.alpha_logit.shape[1] == 1, f"Expected shape (N, 1), got {self.alpha_logit.shape}"
+    assert self.beta.shape[1] == 1, f"Expected shape (N, 1), got {self.beta.shape}"
 
 
   def packed(self):
-    return torch.cat([self.position, self.log_scaling, self.rotation, self.alpha_logit], dim=-1)
+    return torch.cat([self.position, self.log_scaling, self.rotation, self.alpha_logit, self.beta], dim=-1)
 
   @property
   def scale(self):
@@ -61,6 +65,7 @@ class Gaussians3D():
   @property
   def alpha(self):
     return torch.sigmoid(self.alpha_logit)
+  
 
 @tensorclass
 class Gaussians2D():
@@ -69,8 +74,10 @@ class Gaussians2D():
   log_scaling   : torch.Tensor # 2  - scale = exp(log_scalining) 
   rotation      : torch.Tensor # 2  - unit length imaginary number
   alpha_logit   : torch.Tensor # 1  - alpha = sigmoid(alpha_logit)
-  
+  beta          : torch.Tensor # 1  - beta (1/2 * gaussian exponent)
+
   feature      : torch.Tensor # N  - (any rgb, label etc)
+
 
 
 

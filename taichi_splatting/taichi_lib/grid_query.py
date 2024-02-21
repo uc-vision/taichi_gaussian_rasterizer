@@ -36,7 +36,7 @@ def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0, tight_culling:bo
 
   @ti.func 
   def obb_grid_query(v: Gaussian2D.vec, image_size:ivec2) -> OBBGridQuery:
-      uv, uv_conic, _ = Gaussian2D.unpack(v)
+      uv, uv_conic, _, _ = Gaussian2D.unpack(v)
       uv_cov = inverse_cov(uv_conic)
 
       min_tile, max_tile = cov_tile_ranges(uv, uv_cov, image_size)
