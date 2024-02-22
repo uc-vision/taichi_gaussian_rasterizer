@@ -95,7 +95,7 @@ def forward_kernel(config: RasterConfig, feature_size: int):
             break
 
           uv, uv_conic, point_alpha, beta = Gaussian2D.unpack(tile_point[in_group_idx])
-          gaussian_alpha = conic_pdf(ti.cast(pixel, ti.f32) + 0.5, uv, uv_conic, beta)
+          gaussian_alpha = conic_gef_pdf(ti.cast(pixel, ti.f32) + 0.5, uv, uv_conic, beta)
           alpha = point_alpha * gaussian_alpha
 
             
