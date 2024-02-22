@@ -333,24 +333,24 @@ def make_library(dtype=ti.f32, eps=1e-8):
       dy2 = d.y**2
       dxdy = d.x * d.y
       
+      # should not be negative, but to prevent NaNs
       inner =  ti.math.max(0.5 * (dx2 * a + dy2 * c) + dxdy * b, 0.0)
-      z = -inner ** beta
-      p = ti.exp(z)
+      z = inner ** beta
+      p = ti.exp(-z)
 
-      d_inner = inner ** (beta - 1) * p
-      print(beta, p, inner, d_inner)
+      d_inner = beta * inner ** (beta - 1) * p
 
       dp_duv = vec2(
-          (b * d.y - a * (uv.x - xy.x)) * d_inner,
-          (b * d.x - c * (uv.y - xy.y)) * d_inner
+          (a * d.x + b * d.y) * d_inner,
+          (c * d.y + b * d.x) * d_inner
       )
       
       dp_dconic = vec3(
-          -0.5 * dx2 * d_inner,
-          -dxdy * d_inner,
-          -0.5 * dy2 * d_inner)
+          -0.5  * dx2 * d_inner,
+          -dxdy       * d_inner,
+          -0.5  * dy2 * d_inner)
 
-      dp_dbeta = z * ti.log(inner) * p if inner > eps else 0.0
+      dp_dbeta = -z * ti.log(inner) * p if inner > eps else 0.0
       return p, dp_duv, dp_dconic, dp_dbeta
 
 

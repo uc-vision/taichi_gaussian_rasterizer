@@ -1,17 +1,6 @@
 from beartype.typing import Tuple
 import torch
 
-def quat_to_mat(quat: torch.Tensor) -> torch.Tensor:
-  """ Convert quaternion to rotation matrix
-  """
-  x, y, z, w = quat[..., 0], quat[..., 1], quat[..., 2], quat[..., 3]
-  x2, y2, z2 = x*x, y*y, z*z
-
-  return torch.stack([
-    1 - 2*y2 - 2*z2, 2*x*y - 2*w*z, 2*x*z + 2*w*y,
-    2*x*y + 2*w*z, 1 - 2*x2 - 2*z2, 2*y*z - 2*w*x,
-    2*x*z - 2*w*y, 2*y*z + 2*w*x, 1 - 2*x2 - 2*y2
-  ], dim=-1).reshape(quat.shape[:-1] + (3, 3))
 
 def split_rt(
     transform: torch.Tensor,  # (batch_size, 4, 4)

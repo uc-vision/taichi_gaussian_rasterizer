@@ -3,7 +3,8 @@ import torch
 
 from taichi_splatting.perspective import CameraParams
 from taichi_splatting.data_types import Gaussians3D
-from taichi_splatting.torch_ops.transforms import make_homog, quat_to_mat, transform33, transform44
+from taichi_splatting.torch_ops.transforms import make_homog, transform33, transform44
+import roma
 
 def inverse_sigmoid(x:torch.Tensor):
   return torch.log(x / (1 - x))
@@ -30,7 +31,7 @@ def covariance_in_camera(
     """ Construct and rotate the covariance matrix in camera space
     """
     W = T_camera_world[:3, :3]
-    R = quat_to_mat(cov_rotation)
+    R = roma.unitquat_to_rotmat(cov_rotation)
     S = torch.eye(3, device=cov_scale.device, dtype=cov_scale.dtype
                   ).unsqueeze(0) * cov_scale.unsqueeze(1)
     
