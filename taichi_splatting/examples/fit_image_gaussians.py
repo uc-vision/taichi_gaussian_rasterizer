@@ -67,6 +67,8 @@ def train_epoch(opt, gaussians, ref_image, epoch_size=100, config:RasterConfig =
       gaussians2d = project_gaussians2d(gaussians)  
       depths = encode_depth32(gaussians.depth)
 
+      gaussians2d[:, -1] = 1.0
+
       raster = rasterize(gaussians2d=gaussians2d, 
         encoded_depths=depths,
         features=gaussians.feature, 
@@ -126,12 +128,12 @@ def main():
   )
   
 
-  params = ParameterClass.create(gaussians.to_tensordict(), learning_rates, base_lr=1.0)
+  params = ParameterClass.create(gaussians.to_tensordict(), learning_rates, base_lr=0.1)
 
   print(list(params.keys()))
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255
-  config = RasterConfig(tile_size=cmd_args.tile_size, gaussian_scale=3.0)
+  config = RasterConfig(tile_size=cmd_args.tile_size, gaussian_scale=10.0)
 
 
 

@@ -32,7 +32,7 @@ def eval_with_grad(f, *args):
   return out, tuple(arg.grad for arg in args)
 
 def allclose(test_name, name, a, b, atol=1e-2, rtol=1e-3):
-  assert type(a) == type(b), f"{name}: type does not match"
+  assert type(a) == type(b), f"{name}: type does not match, {type(a)} != {type(b)}"
   if isinstance(a, torch.Tensor):
     if not torch.allclose(a, b, atol=atol):
       print(a)

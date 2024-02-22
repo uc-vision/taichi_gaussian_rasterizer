@@ -22,7 +22,7 @@ def main():
     while True: 
       gaussians = random_2d_gaussians(5, (640, 480), scale_factor=0.2, alpha_range=(1.0, 1.0)).cuda()
 
-      image = render_gaussians(gaussians, (640, 480))
+      image = render_gaussians(gaussians, (640, 480)).image
       display_image('image', image)
 
       splits = split_gaussians2d(gaussians, 2, scaling=0.8)
@@ -32,7 +32,7 @@ def main():
       
       # resample_inplace(splits)
 
-      image = render_gaussians(splits, (640, 480))
+      image = render_gaussians(splits, (640, 480)).image
       display_image('image', image)
 
 if __name__ == "__main__":

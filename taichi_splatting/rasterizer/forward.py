@@ -3,7 +3,7 @@ from functools import cache
 import taichi as ti
 from taichi_splatting.data_types import RasterConfig
 from taichi_splatting.rasterizer import tiling
-from taichi_splatting.taichi_lib.f32 import conic_pdf, Gaussian2D
+from taichi_splatting.taichi_lib.f32 import conic_gef_pdf, Gaussian2D
 
 
 

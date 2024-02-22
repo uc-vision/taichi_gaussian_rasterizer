@@ -4,7 +4,7 @@ from taichi_splatting.data_types import RasterConfig
 from taichi_splatting.rasterizer import tiling
 from taichi_splatting.taichi_lib.concurrent import block_reduce_i32, warp_add_vector
 
-from taichi_splatting.taichi_lib.f32 import conic_pdf_with_grad, Gaussian2D
+from taichi_splatting.taichi_lib.f32 import conic_gef_pdf_with_grad, Gaussian2D
 from taichi.math import ivec2, vec2
 
 

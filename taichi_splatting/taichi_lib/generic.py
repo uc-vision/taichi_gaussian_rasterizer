@@ -3,7 +3,7 @@ import taichi as ti
 
 from taichi_splatting.taichi_lib.conversions import struct_size
 
-def make_library(dtype=ti.f32):
+def make_library(dtype=ti.f32, eps=1e-8):
   """
   This function returns a namespace containing all the functions and data types
   that are used in the other modules. This is done to provide different precisions
@@ -286,46 +286,17 @@ def make_library(dtype=ti.f32):
       return radii_from_cov(inverse_cov(conic))
 
 
-  # @ti.func
-  # def conic_pdf(xy: vec2, uv: vec2, uv_conic: vec3) -> dtype:
-  #     dx, dy = xy - uv
-  #     a, b, c = uv_conic
-
-  #     p = ti.exp(-0.5 * (dx**2 * a + dy**2 * c) - dx * dy * b)
-  #     return p
-
-
-  # @ti.func
-  # def conic_pdf_with_grad(xy: vec2, uv: vec2, uv_conic: vec3):
-  #     d = xy - uv
-  #     a, b, c = uv_conic
-
-  #     dx2 = d.x**2
-  #     dy2 = d.y**2
-  #     dxdy = d.x * d.y
-      
-  #     p = ti.exp(-0.5 * (dx2 * a + dy2 * c) - dxdy * b)
-  #     dp_duv = vec2(
-  #         (b * d.y - a * (uv.x - xy.x)) * p,
-  #         (b * d.x - c * (uv.y - xy.y)) * p
-  #     )
-  #     dp_dconic = vec3(-0.5 * dx2 * p, -dxdy * p, -0.5 * dy2 * p)
-
-  #     return p, dp_duv, dp_dconic
-
   @ti.func
-  def conic_pdf(xy: vec2, uv: vec2, uv_conic: vec3, beta:ti.template()) -> dtype:
+  def conic_gaussian_pdf(xy: vec2, uv: vec2, uv_conic: vec3) -> dtype:
       dx, dy = xy - uv
       a, b, c = uv_conic
 
-      inner =  (0.5 * (dx**2 * a + dy**2 * c) - dx * dy * b) 
-      p = ti.exp(-(inner ** beta))
-
+      p = ti.exp(-0.5 * (dx**2 * a + dy**2 * c) - dx * dy * b)
       return p
 
 
   @ti.func
-  def conic_pdf_with_grad(xy: vec2, uv: vec2, uv_conic: vec3, beta:ti.template()):
+  def conic_gaussian_pdf_with_grad(xy: vec2, uv: vec2, uv_conic: vec3):
       d = xy - uv
       a, b, c = uv_conic
 
@@ -333,11 +304,42 @@ def make_library(dtype=ti.f32):
       dy2 = d.y**2
       dxdy = d.x * d.y
       
-      inner =  (0.5 * (dx2 * a + dy2 * c) - dxdy * b) 
-      z = inner ** beta
-      p = ti.exp(-z)
+      p = ti.exp(-0.5 * (dx2 * a + dy2 * c) - dxdy * b)
+      dp_duv = vec2(
+          (b * d.y - a * (uv.x - xy.x)) * p,
+          (b * d.x - c * (uv.y - xy.y)) * p
+      )
+      dp_dconic = vec3(-0.5 * dx2 * p, -dxdy * p, -0.5 * dy2 * p)
+      return p, dp_duv, dp_dconic
 
-      d_inner = z * (p / inner)
+  @ti.func
+  def conic_gef_pdf(xy: vec2, uv: vec2, uv_conic: vec3, beta:ti.template()) -> dtype:
+      dx, dy = xy - uv
+      a, b, c = uv_conic
+
+      inner = (0.5 * (dx**2 * a + dy**2 * c) + dx * dy * b)
+      p = ti.exp(-inner ** beta)
+      return p
+
+
+  
+
+  @ti.func
+  def conic_gef_pdf_with_grad(xy: vec2, uv: vec2, uv_conic: vec3, beta:ti.template()):
+      d = xy - uv
+      a, b, c = uv_conic
+
+      dx2 = d.x**2
+      dy2 = d.y**2
+      dxdy = d.x * d.y
+      
+      inner =  ti.math.max(0.5 * (dx2 * a + dy2 * c) + dxdy * b, 0.0)
+      z = -inner ** beta
+      p = ti.exp(z)
+
+      d_inner = inner ** (beta - 1) * p
+      print(beta, p, inner, d_inner)
+
       dp_duv = vec2(
           (b * d.y - a * (uv.x - xy.x)) * d_inner,
           (b * d.x - c * (uv.y - xy.y)) * d_inner
@@ -348,7 +350,7 @@ def make_library(dtype=ti.f32):
           -dxdy * d_inner,
           -0.5 * dy2 * d_inner)
 
-      dp_dbeta = -z * ti.log(inner) * p
+      dp_dbeta = z * ti.log(inner) * p if inner > eps else 0.0
       return p, dp_duv, dp_dconic, dp_dbeta
 
 
