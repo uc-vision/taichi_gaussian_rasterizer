@@ -118,7 +118,7 @@ def main():
 
   torch.manual_seed(cmd_args.seed)
 
-  gaussians = random_2d_gaussians(cmd_args.n, (w, h), scale_factor=0.1).to(torch.device('cuda:0'))
+  gaussians = random_2d_gaussians(cmd_args.n, (w, h), scale_factor=1.0).to(torch.device('cuda:0'))
   learning_rates = dict(
     position=0.1,
     log_scaling=0.05,
@@ -128,12 +128,12 @@ def main():
   )
   
 
-  params = ParameterClass.create(gaussians.to_tensordict(), learning_rates, base_lr=0.1)
+  params = ParameterClass.create(gaussians.to_tensordict(), learning_rates, base_lr=1.0)
 
   print(list(params.keys()))
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255
-  config = RasterConfig(tile_size=cmd_args.tile_size, gaussian_scale=10.0)
+  config = RasterConfig(tile_size=cmd_args.tile_size, gaussian_scale=3.0)
 
 
 
