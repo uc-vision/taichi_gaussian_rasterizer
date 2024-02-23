@@ -58,8 +58,10 @@ class ParameterClass():
 
   def keys(self):
     return self.tensors.keys()
-  
 
+  def optimized_keys(self):
+    return {group["name"] for group in self.optimizer.param_groups}
+    
   def items(self):
     return self.tensors.items()
 
@@ -83,9 +85,7 @@ class ParameterClass():
   def batch_size(self):
     return self.tensors.batch_size
 
-  @cached_property
-  def _optimized_keys(self):
-    return {group["name"] for group in self.optimizer.param_groups}
+
     
   def _updated_state(self, f:Callable):
     def modify_state(state):
@@ -102,7 +102,7 @@ class ParameterClass():
 
 
   def _updated_tensors(self, tensors):
-    params = as_parameters(tensors, self._optimized_keys)
+    params = as_parameters(tensors, self.optimized_keys())
     updated_groups = [ replace_dict(group, params=[params[group["name"]]])
       for group in self.optimizer.param_groups]
     

@@ -124,11 +124,14 @@ def main():
     rotation=0.005,
     alpha_logit=0.1,
     feature=0.01,
-    beta=0.001
+    #beta=0.001
   )
   
   params = ParameterClass.create(gaussians.to_tensordict(), learning_rates, base_lr=1.0)
-  print(list(params.keys()))
+  keys = set(params.keys())
+  trainable = set(params.optimized_keys())
+
+  print(f'attributes - trainable: {trainable} other: {keys - trainable}')
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255
   config = RasterConfig(tile_size=cmd_args.tile_size, gaussian_scale=3.0)
