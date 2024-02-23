@@ -198,8 +198,8 @@ def backward_kernel(config: RasterConfig,
               grad_point += alpha_grad * Gaussian2D.to_vec(
                   point_alpha * dp_dmean, 
                   point_alpha * dp_dconic,
-                  point_alpha * dp_dbeta,
-                  gaussian_alpha)
+                  gaussian_alpha,
+                  point_alpha * dp_dbeta)
 
 
               if ti.static(compute_split_heuristics):
