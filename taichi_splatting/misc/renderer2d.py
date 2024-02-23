@@ -54,6 +54,9 @@ def point_covariance(gaussians):
   basis = point_basis(gaussians)
   return torch.bmm(basis.transpose(1, 2), basis)
 
+def inv_softplus(x):
+  return x + torch.log(-torch.expm1(-x))
+
 
 def split_by_samples(points: Gaussians2D, samples: torch.Tensor, depth_noise:float=1e-2) -> Gaussians2D:
   num_points, n, _ = samples.shape
@@ -69,6 +72,7 @@ def split_by_samples(points: Gaussians2D, samples: torch.Tensor, depth_noise:flo
   return replace(gaussians,
     position = gaussians.position + point_samples,
     depth = gaussians.depth + torch.randn_like(gaussians.depth) * depth_noise,
+    # beta = inv_softplus(torch.full_like(gaussians.beta, 1.0)),
     batch_size=(num_points * n, ))
    
 

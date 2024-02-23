@@ -38,6 +38,9 @@ def parse_args():
   parser.add_argument('--debug', action='store_true')
   parser.add_argument('--show', action='store_true')
 
+  parser.add_argument('--gef', action='store_true')
+
+
   parser.add_argument('--profile', action='store_true')
   parser.add_argument('--epoch', type=int, default=20, help='Number of iterations per measurement/profiling')
   
@@ -79,7 +82,7 @@ def train_epoch(opt, gaussians, ref_image, epoch_size=100, config:RasterConfig =
       loss.backward()
 
 
-      check_finite(gaussians)
+      check_finite(gaussians, "gaussians", warn=True)
       opt.step()
 
       with torch.no_grad():
@@ -118,14 +121,14 @@ def main():
 
   torch.manual_seed(cmd_args.seed)
 
-  gaussians = random_2d_gaussians(cmd_args.n, (w, h), scale_factor=1.0, beta_range=(1.0, 1.0)).to(torch.device('cuda:0'))
+  gaussians = random_2d_gaussians(cmd_args.n, (w, h), scale_factor=1.0, beta_range=(0.5, 2.0)).to(torch.device('cuda:0'))
   learning_rates = dict(
     position=0.1,
     log_scaling=0.05,
     rotation=0.005,
     alpha_logit=0.1,
     feature=0.01,
-    beta = 0.1
+    beta = 0.01 if cmd_args.gef else 0.00
     #beta=0.001
   )
   
@@ -136,7 +139,7 @@ def main():
   print(f'attributes - trainable: {trainable} other: {keys - trainable}')
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255
-  config = RasterConfig(tile_size=cmd_args.tile_size, gaussian_scale=3.0)
+  config = RasterConfig(tile_size=cmd_args.tile_size, gaussian_scale=5.0)
 
   def timed_epoch(*args, **kwargs):
     start = time.time()
