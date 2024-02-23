@@ -67,7 +67,6 @@ def train_epoch(opt, gaussians, ref_image, epoch_size=100, config:RasterConfig =
       gaussians2d = project_gaussians2d(gaussians)  
       depths = encode_depth32(gaussians.depth)
 
-      gaussians2d[:, -1] = 1.0
 
       raster = rasterize(gaussians2d=gaussians2d, 
         encoded_depths=depths,
@@ -118,24 +117,21 @@ def main():
 
   torch.manual_seed(cmd_args.seed)
 
-  gaussians = random_2d_gaussians(cmd_args.n, (w, h), scale_factor=1.0).to(torch.device('cuda:0'))
+  gaussians = random_2d_gaussians(cmd_args.n, (w, h), scale_factor=1.0, beta_range=(1.0, 1.0)).to(torch.device('cuda:0'))
   learning_rates = dict(
     position=0.1,
     log_scaling=0.05,
     rotation=0.005,
     alpha_logit=0.1,
-    feature=0.01
+    feature=0.01,
+    beta=0.001
   )
   
-
   params = ParameterClass.create(gaussians.to_tensordict(), learning_rates, base_lr=1.0)
-
   print(list(params.keys()))
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255
   config = RasterConfig(tile_size=cmd_args.tile_size, gaussian_scale=3.0)
-
-
 
   def timed_epoch(*args, **kwargs):
     start = time.time()
@@ -147,8 +143,6 @@ def main():
 
 
   train = with_benchmark(timed_epoch) if cmd_args.profile else timed_epoch
-
-  
   split_rate = cmd_args.split_rate
 
   for epoch in range(cmd_args.max_epoch):
@@ -196,7 +190,6 @@ def main():
 
         grad_thresh = torch.quantile(gradient, 1 - (split_rate * split_ratio))
         vis_thresh = torch.quantile(visibility, split_rate * 1/split_ratio )
-
     
         prune_mask = (visibility <= vis_thresh)  & (gradient <  grad_thresh)
         split_mask = torch.zeros_like(prune_mask, dtype=torch.bool)

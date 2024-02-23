@@ -73,7 +73,12 @@ def random_3d_gaussians(n, camera_params:CameraParams,
   )
 
 
-def random_2d_gaussians(n, image_size:Tuple[int, int], scale_factor=1.0, alpha_range=(0.1, 0.9), depth_range=(0.1, 100.0)):
+
+def inv_softplus(x):
+  return x + torch.log(-torch.expm1(-x))
+
+
+def random_2d_gaussians(n, image_size:Tuple[int, int], scale_factor=1.0, alpha_range=(0.1, 0.9), depth_range=(0.1, 100.0), beta_range=(0.5, 1.5)):
   w, h = image_size
 
   position = torch.rand(n, 2) * torch.tensor([w, h], dtype=torch.float32).unsqueeze(0)
@@ -88,7 +93,7 @@ def random_2d_gaussians(n, image_size:Tuple[int, int], scale_factor=1.0, alpha_r
   low, high = alpha_range
   alpha = torch.rand(n) * (high - low) + low
 
-  beta = torch.full_like(alpha, 0.5)
+  beta = inv_softplus(torch.rand(n) * (beta_range[1] - beta_range[0]) + beta_range[0] - 0.5) 
 
   return Gaussians2D(
     position=position,
