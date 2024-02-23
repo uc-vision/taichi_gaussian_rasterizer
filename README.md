@@ -41,6 +41,14 @@ Some bug fixes which have occurred after the 1.7.0 release:
 
 There exists a toy optimizer for fitting a set of randomly initialized gaussians to some 2D images `fit_image_gaussians` - useful for testing rasterization without the rest of the dependencies.
 
+Fitting an image (fixed points): \
+`fit_image_gaussians <image file> --show  --n 20000` 
+
+Fitting an image (split and prune to target): \
+`fit_image_gaussians <image file> --show --n 1000 --target 20000` 
+
+See `--help` for other options.
+
 ### benchmarks
 
 There exist benchmarks to evaluate performance on individual components in isolation under `taichi_splatting/benchmarks/`
