@@ -299,17 +299,19 @@ def make_library(dtype=ti.f32):
 
 
   @ti.func
-  def conic_pdf(xy: vec2, uv: vec2, uv_conic: vec3) -> dtype:
+  def conic_pdf(xy: vec2, uv: vec2, uv_conic: vec3, beta:ti.template()) -> dtype:
       dx, dy = xy - uv
       a, b, c = uv_conic
 
-      inner = 0.5 * (dx**2 * a + dy**2 * c) + dx * dy * b
-      p = ti.exp(-inner)
+      inner = (0.5 * (dx**2 * a + dy**2 * c) + dx * dy * b)
+      p = ti.exp(-inner ** beta)
       return p
 
 
+  
+
   @ti.func
-  def conic_pdf_with_grad(xy: vec2, uv: vec2, uv_conic: vec3):
+  def conic_pdf_with_grad(xy: vec2, uv: vec2, uv_conic: vec3, beta:ti.template()):
       d = xy - uv
       a, b, c = uv_conic
 
@@ -317,16 +319,26 @@ def make_library(dtype=ti.f32):
       dy2 = d.y**2
       dxdy = d.x * d.y
       
-      inner = 0.5 * (dx2 * a + dy2 * c) + dxdy * b
-      p = ti.exp(-inner)
-      
-      dp_duv = vec2(
-          (b * d.y + a * d.x) * p,
-          (b * d.x + c * d.y) * p
-      )
-      dp_dconic = vec3(-0.5 * dx2 * p, -dxdy * p, -0.5 * dy2 * p)
+      # should not be negative, but to prevent NaNs
+      inner =  ti.math.max(0.5 * (dx2 * a + dy2 * c) + dxdy * b, 0.0)
+      z = inner ** beta
+      p = ti.exp(-z)
 
-      return p, dp_duv, dp_dconic
+      d_inner = beta * inner ** (beta - 1) * p
+
+      dp_duv = vec2(
+          (a * d.x + b * d.y) * d_inner,
+          (c * d.y + b * d.x) * d_inner
+      )
+      
+      dp_dconic = vec3(
+          -0.5  * dx2 * d_inner,
+          -dxdy       * d_inner,
+          -0.5  * dy2 * d_inner)
+
+      dp_dbeta = -z * ti.log(inner) * p if inner > 1e-8 else 0.0
+      return p, dp_duv, dp_dconic, dp_dbeta
+
 
 
 
