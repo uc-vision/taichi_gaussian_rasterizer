@@ -6,7 +6,7 @@ import cv2
 from taichi_splatting.data_types import Gaussians3D, RasterConfig
 from taichi_splatting.perspective.params import CameraParams
 from taichi_splatting.renderer import render_gaussians
-from taichi_splatting.torch_ops.transforms import expand44, join_rt, make_homog, quat_to_mat, transform33, transform44
+from taichi_splatting.torch_ops.transforms import expand44, join_rt, quat_to_mat
 
 import taichi as ti
 
@@ -71,21 +71,21 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
 
 
 
-@ti.kernel
-def render_gaussians(output_image:ti.types.ndarray(type=ti.math.vec3, ndim=2), 
-                     M : ti.types.ndarray(type=ti.math.mat4, ndim=1), features=ti.types.ndarray(ti.math.vec3, ndim=1)):
-  pass
+# @ti.kernel
+# def render_gaussians(output_image:ti.types.ndarray(type=ti.math.vec3, ndim=2), 
+#                      M : ti.types.ndarray(type=ti.math.mat4, ndim=1), features=ti.types.ndarray(ti.math.vec3, ndim=1)):
+#   pass
 
 
 
 def main():
   ti.init(arch=ti.cuda)
 
-  pos = torch.tensor([0.0, -30.0, 20.0])
+  pos = torch.tensor([0.0, -15.0, 15.0])
   target = torch.tensor([0.0, 0.0, 0.0])
 
-  image_size = (800, 600)
-  f = fov_to_focal(math.radians(40.0), image_size[0])
+  image_size = (1000, 1000)
+  f = fov_to_focal(math.radians(20.0), image_size[0])
   proj = torch.tensor([
     [f, 0, image_size[0] / 2],
     [0, f, image_size[1] / 2],
@@ -103,12 +103,12 @@ def main():
      near_plane=0.1, far_plane=100.0
      ).to(device=device)
   
-  points = (grid_2d(5, 5).view(-1, 2).to(torch.float32) - 2) * 3
+  points = (grid_2d(3, 3).view(-1, 2).to(torch.float32) - 1) * 2
   points_3d = torch.stack([*points.unbind(-1), torch.zeros_like(points[..., 0])], dim=-1)
   n = points_3d.shape[0]
 
   r = torch.tensor([1.0, 0.0, 0.0, 0.0])
-  s = torch.tensor([1.0, 1.0, 0.01])
+  s = torch.tensor([1.0, 1.0, 0.01]) / math.sqrt(2)
 
   gaussians = Gaussians3D(
     position = points_3d,
@@ -125,7 +125,7 @@ def main():
   print(M)
 
 
-  image = render_gaussians(gaussians, camera_params, config=RasterConfig(beta=20.0)).image
+  image = render_gaussians(gaussians, camera_params, config=RasterConfig(beta=50.0)).image
   display_image("image", image)
   
 
