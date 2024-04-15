@@ -6,10 +6,10 @@ import cv2
 from taichi_splatting.data_types import Gaussians3D, RasterConfig
 from taichi_splatting.perspective.params import CameraParams
 from taichi_splatting.renderer import render_gaussians
-from taichi_splatting.torch_ops.transforms import join_rt
-
+from taichi_splatting.torch_ops.transforms import expand44, join_rt, make_homog, quat_to_mat, transform33, transform44
 
 import taichi as ti
+
 
 def fov_to_focal(fov, image_size):
   return image_size / (2 * math.tan(fov / 2))
@@ -36,6 +36,48 @@ def grid_2d(i, j):
   x, y = torch.meshgrid(torch.arange(i), torch.arange(j), indexing='ij')
   return torch.stack([x, y], dim=-1)
 
+
+
+
+
+
+
+
+def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
+           T_image_camera, T_camera_world):
+  
+  position, log_scaling, rotation, alpha_logit = [
+     x[indexes] for x in (position, log_scaling, rotation, alpha_logit)] 
+
+  T_camera_world = T_camera_world.squeeze(0)
+  T_image_camera = T_image_camera.squeeze(0)
+
+  # point_in_camera = transform44(T_camera_world,  make_homog(position))[:, :3]
+  # uv = transform33(T_image_camera, point_in_camera) / point_in_camera[:, 2:3]
+
+  T_image_world = expand44(T_image_camera) @  T_camera_world
+
+  R = quat_to_mat(rotation)
+
+  scale = log_scaling.exp()
+
+  S = torch.eye(3, device=scale.device, dtype=scale.dtype
+                  ).unsqueeze(0) * scale.unsqueeze(1)
+  
+  H = join_rt(R @ S, position)
+
+  WH = T_image_world @ H
+  return WH.transpose(-1, -2)
+
+
+
+@ti.kernel
+def render_gaussians(output_image:ti.types.ndarray(type=ti.math.vec3, ndim=2), 
+                     M : ti.types.ndarray(type=ti.math.mat4, ndim=1), features=ti.types.ndarray(ti.math.vec3, ndim=1)):
+  pass
+
+
+
 def main():
   ti.init(arch=ti.cuda)
 
@@ -51,14 +93,15 @@ def main():
   ])
 
   world_t_camera = look_at(pos, target)
-  print(world_t_camera)
+
+  device = torch.device('cuda:0')
 
   camera_params = CameraParams(
      T_camera_world=torch.linalg.inv(world_t_camera),
      T_image_camera=proj,
      image_size=image_size,
      near_plane=0.1, far_plane=100.0
-     )
+     ).to(device=device)
   
   points = (grid_2d(5, 5).view(-1, 2).to(torch.float32) - 2) * 3
   points_3d = torch.stack([*points.unbind(-1), torch.zeros_like(points[..., 0])], dim=-1)
@@ -74,11 +117,15 @@ def main():
     alpha_logit = torch.full((n, 1), fill_value=100.0),
     feature = torch.rand(n, 3),
     batch_size = (n,)
-  )
+  ).to(device=device)
 
-  device = torch.device('cuda:0')
+  M = project_planes(gaussians.position, gaussians.log_scaling, gaussians.rotation, gaussians.alpha_logit,
+                     torch.arange(n), camera_params.T_image_camera, camera_params.T_camera_world)
+  
+  print(M)
 
-  image = render_gaussians(gaussians.to(device='cuda:0'), camera_params.to(device), config=RasterConfig(beta=20.0)).image
+
+  image = render_gaussians(gaussians, camera_params, config=RasterConfig(beta=20.0)).image
   display_image("image", image)
   
 
