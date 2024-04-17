@@ -95,7 +95,9 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
 
 
 @ti.kernel
-def render_gaussians_kernel(output_image:ti.types.ndarray(dtype=ti.math.vec3, ndim=2), 
+def render_gaussians_kernel(
+  output_image:ti.types.ndarray(dtype=ti.math.vec3, ndim=2), 
+  depth_image:ti.types.ndarray(dtype=ti.f32, ndim=2),
                      M : ti.types.ndarray(dtype=ti.math.mat4, ndim=1), features:ti.types.ndarray(ti.math.vec3, ndim=1), beta:ti.f32):
 
   for y, x in output_image:
@@ -111,10 +113,10 @@ def render_gaussians_kernel(output_image:ti.types.ndarray(dtype=ti.math.vec3, nd
       v = (hu.w * hv.x - hu.x * hv.w) / (hu.x * hv.y - hu.y * hv.x)
 
       p = m @ ti.Vector([u, v, 1., 1.])
-      p /= p.w
 
       g = ti.exp(-((u**2 + v**2) / 2)**beta )
-      output_image[y, x] += features[i] * g
+      output_image[y, x] = features[i] * g
+      depth_image[y, x] = ti.min(p.z, depth_image[y, x])
 
 
 def main():
@@ -174,6 +176,8 @@ def main():
 
 
   output_image = torch.zeros((*reversed(image_size), 3), dtype=torch.float32, device=device)
+  depth_image = torch.zeros(image_size, dtype=torch.float32, device=device)
+
   render_gaussians_kernel(output_image, M, gaussians.feature, beta=50.0)
 
   image = render_gaussians(gaussians, camera_params, config=RasterConfig(beta=50.0)).image
