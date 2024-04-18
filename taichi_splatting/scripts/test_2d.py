@@ -28,9 +28,13 @@ def look_at(eye, target, up=None):
   return join_rt(R.T, eye)
 
 
+def numpy_image(image):
+  return (image.detach().clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
+
 def display_image(name, image):
-    image = (image.detach().clamp(0, 1) * 255).to(torch.uint8)
-    image = image.cpu().numpy()
+    
+    if isinstance(image, torch.Tensor):
+      image = numpy_image(image)
 
     cv2.imshow(name, image)
     cv2.waitKey(0)
@@ -84,9 +88,6 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
 
   p = torch.bmm(image_t_splat, make_homog(torch.zeros(9, 3, device=image_t_splat.device)).unsqueeze(-1))
 
-  for i in range(n):
-    print(p[i], (p / p[:, 2:3])[i], uv[i], point_in_camera[i])
-    print("--------------")
 
 
 
@@ -115,7 +116,8 @@ def render_gaussians_kernel(
       p = m @ ti.Vector([u, v, 1., 1.])
 
       g = ti.exp(-((u**2 + v**2) / 2)**beta )
-      output_image[y, x] = features[i] * g
+      output_image[y, x] += features[i] * g
+
       depth_image[y, x] = ti.min(p.z, depth_image[y, x])
 
 
@@ -169,18 +171,31 @@ def main():
     batch_size = (n,)
   ).to(device=device)
 
-  M = project_planes(gaussians.position, gaussians.log_scaling, gaussians.rotation, gaussians.alpha_logit,
+  image_t_splat = project_planes(gaussians.position, gaussians.log_scaling, gaussians.rotation, gaussians.alpha_logit,
                      torch.arange(n), T_image_camera, T_camera_world).contiguous()
   
-  print(M)
+  r = math.sqrt(2)
+  
+  uv = torch.Tensor([[-r, -r, 1, 1], [r, -r, 1, 1], [r, r, 1, 1], [-r, r, 1, 1]]).to(device=device)
 
+  # project corners
+  corners = torch.einsum('nij,mj->nmi', image_t_splat, uv) 
+  corners = corners[:, :, 0:2] / corners[:, :, 2:3]
+  
 
   output_image = torch.zeros((*reversed(image_size), 3), dtype=torch.float32, device=device)
   depth_image = torch.zeros(image_size, dtype=torch.float32, device=device)
 
-  render_gaussians_kernel(output_image, M, gaussians.feature, beta=50.0)
+  render_gaussians_kernel(output_image, depth_image, image_t_splat, gaussians.feature, beta=50.0)
 
   image = render_gaussians(gaussians, camera_params, config=RasterConfig(beta=50.0)).image
+
+  output_image = numpy_image(output_image)
+
+  for box in corners.cpu().numpy().astype(int):
+    for i in range(4):
+      a, b = box[i], box[(i + 1) % 4]
+      cv2.line(output_image, a, b, (255, 255, 255))
 
 
   display_image("output_image", output_image)
