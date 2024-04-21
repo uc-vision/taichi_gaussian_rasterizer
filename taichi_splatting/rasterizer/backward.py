@@ -174,7 +174,7 @@ def backward_kernel(config: RasterConfig,
           for i, offset in ti.static(pixel_tile):
             pixel = ti.cast(pixel_base, dtype) + vec2(offset) + 0.5
 
-            gaussian_alpha, dp_dmean, dp_dconic = lib.conic_pdf_with_grad(pixel, uv, uv_conic, beta=config.beta)
+            gaussian_alpha, dp_dmean, dp_dconic = lib.conic_pdf_with_grad(pixel, uv, uv_conic, config.beta)
             
             alpha = point_alpha * gaussian_alpha
             pixel_grad = (alpha >= ti.static(config.alpha_threshold)) and (point_index <= last_point_pixel[i])      

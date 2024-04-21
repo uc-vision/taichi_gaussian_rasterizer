@@ -336,8 +336,8 @@ def make_library(dtype=ti.f32):
           -dxdy       * d_inner,
           -0.5  * dy2 * d_inner)
 
-      dp_dbeta = -z * ti.log(inner) * p if inner > 1e-8 else 0.0
-      return p, dp_duv, dp_dconic, dp_dbeta
+      # dp_dbeta = -z * ti.log(inner) * p if inner > 1e-8 else 0.0
+      return p, dp_duv, dp_dconic
 
 
 

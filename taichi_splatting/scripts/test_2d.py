@@ -1,4 +1,6 @@
 import math
+import numpy as np
+import scipy
 import torch
 import torch.nn.functional as F
 import cv2
@@ -64,14 +66,9 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
   position, log_scaling, rotation, alpha_logit = [
      x[indexes] for x in (position, log_scaling, rotation, alpha_logit)] 
   
-
-  n = position.shape[0]
-
   T_camera_world = T_camera_world.squeeze(0)
   T_image_camera = T_image_camera.squeeze(0)
 
-  point_in_camera = transform44(T_camera_world,  make_homog(position))[:, :3]
-  uv = transform33(T_image_camera, point_in_camera) / point_in_camera[:, 2:3]
 
   T_image_world = expand_proj(T_image_camera) @  T_camera_world
   R = quat_to_mat(rotation)
@@ -83,12 +80,6 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
   
   world_t_splat = join_rt(R @ S, position)
   image_t_splat = T_image_world @ world_t_splat
-
-
-
-  p = torch.bmm(image_t_splat, make_homog(torch.zeros(9, 3, device=image_t_splat.device)).unsqueeze(-1))
-
-
 
 
   return image_t_splat
@@ -129,9 +120,8 @@ def main():
   torch.set_default_device(device)
 
 
-  pos = torch.tensor([-4.0, -4.0, 1.0])
+  pos = torch.tensor([4.0, 4.0, 2.0])
   target = torch.tensor([0.0, 0.0, 0.0])
-
 
   image_size = (1000, 1000)
   f = fov_to_focal(math.radians(60.0), image_size[0])
@@ -155,12 +145,15 @@ def main():
      near_plane=0.1, far_plane=100.0
      ).to(device=device)
   
-  points = (grid_2d(3, 3).view(-1, 2).to(torch.float32) - 1) * 2
+  # points = (grid_2d(3, 3).view(-1, 2).to(torch.float32) - 1) * 2
+  points = (grid_2d(1, 1).view(-1, 2).to(torch.float32)) * 2
+
+
   points_3d = torch.stack([*points.unbind(-1), torch.zeros_like(points[..., 0])], dim=-1)
   n = points_3d.shape[0]
 
   r = torch.tensor([1.0, 0.0, 0.0, 0.0])
-  s = torch.tensor([1.0, 1.0, 0.000001]) / math.sqrt(2)
+  s = torch.tensor([0.5, 0.5, 0.000001]) / math.sqrt(2)
 
   gaussians = Gaussians3D(
     position = points_3d,
@@ -173,9 +166,21 @@ def main():
 
   image_t_splat = project_planes(gaussians.position, gaussians.log_scaling, gaussians.rotation, gaussians.alpha_logit,
                      torch.arange(n), T_image_camera, T_camera_world).contiguous()
-  
-  r = math.sqrt(2)
-  
+
+
+  def find_threshold(alpha, beta):
+    x = np.linspace(0, 4, 10000)
+    y = np.exp(-(0.5 * x**2) ** beta)
+
+    return x[np.argmax(y < alpha)]
+
+
+  config = RasterConfig(gaussian_scale=find_threshold(alpha=0.01, beta=10.0), 
+                        beta=10.0, alpha_threshold=0.01)
+
+
+  r = config.gaussian_scale
+
   uv = torch.Tensor([[-r, -r, 1, 1], [r, -r, 1, 1], [r, r, 1, 1], [-r, r, 1, 1]]).to(device=device)
 
   # project corners
@@ -186,9 +191,8 @@ def main():
   output_image = torch.zeros((*reversed(image_size), 3), dtype=torch.float32, device=device)
   depth_image = torch.zeros(image_size, dtype=torch.float32, device=device)
 
-  render_gaussians_kernel(output_image, depth_image, image_t_splat, gaussians.feature, beta=50.0)
+  render_gaussians_kernel(output_image, depth_image, image_t_splat, gaussians.feature, beta=config.beta)
 
-  image = render_gaussians(gaussians, camera_params, config=RasterConfig(beta=50.0)).image
 
   output_image = numpy_image(output_image)
 
@@ -199,6 +203,25 @@ def main():
 
 
   display_image("output_image", output_image)
+
+
+
+  
+  print(config)
+
+  render = render_gaussians(gaussians, camera_params, config=config, compute_radii=True)
+  image = numpy_image(render.image)
+
+  for uv, radii in zip(render.gaussians_2d[:, :2], render.radii):
+    uv = uv.cpu().numpy()
+    radius = int(radii.item())
+
+    corners = uv.reshape(1, -1) + np.array([[-radius, -radius], [radius, -radius], [radius, radius], [-radius, radius]])
+    corners = corners.astype(int)
+    for i in range(4):
+      a, b = corners[i], corners[(i + 1) % 4]
+      cv2.line(image, tuple(a), tuple(b), (255, 255, 255))
+
   display_image("image", image)
   
 

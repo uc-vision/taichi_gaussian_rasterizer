@@ -8,7 +8,7 @@ import taichi as ti
 import torch
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
 from taichi_splatting.misc.encode_depth import encode_depth32
-from taichi_splatting.misc.renderer2d import project_gaussians2d, split_gaussians2d, uniform_split_gaussians2d
+from taichi_splatting.misc.renderer2d import project_gaussians2d, uniform_split_gaussians2d
 
 from taichi_splatting.rasterizer.function import rasterize
 
@@ -31,6 +31,7 @@ def parse_args():
   parser.add_argument('--n', type=int, default=1000)
   parser.add_argument('--target', type=int, default=None)
   parser.add_argument('--max_epoch', type=int, default=100)
+  parser.add_argument('--beta', type=float, default=1.0)
   parser.add_argument('--split_rate', type=float, default=0.1, help='Rate of points to split each epoch (proportional to number of points)')
 
   parser.add_argument('--write_frames', type=Path, default=None)
@@ -39,6 +40,9 @@ def parse_args():
   parser.add_argument('--show', action='store_true')
 
   parser.add_argument('--profile', action='store_true')
+  
+
+
   parser.add_argument('--epoch', type=int, default=20, help='Number of iterations per measurement/profiling')
   
   args = parser.parse_args()
@@ -139,7 +143,10 @@ def main():
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255
   
-  config = RasterConfig(tile_size=cmd_args.tile_size, gaussian_scale=3.0, pixel_stride=cmd_args.pixel_tile or (2, 2))
+  config = RasterConfig(tile_size=cmd_args.tile_size, 
+                        pixel_stride=cmd_args.pixel_tile or (2, 2), 
+                        alpha_threshold=1./100.,
+                        beta=cmd_args.beta)
 
 
 

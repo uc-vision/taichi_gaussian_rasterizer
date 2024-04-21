@@ -3,6 +3,7 @@ import math
 from numbers import Integral
 from beartype.typing import Tuple
 from beartype import beartype
+import numpy as np
 import taichi as ti
 from taichi.math import ivec2
 import torch
@@ -19,6 +20,7 @@ def pad_to_tile(image_size: Tuple[Integral, Integral], tile_size: int):
     return int(math.ceil(x / tile_size) * tile_size)
  
   return tuple(pad(x) for x in image_size)
+
 
 
 @cache
@@ -61,10 +63,15 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
     raise ValueError(f"depth_type {depth_type} not supported")
 
 
+  x = np.linspace(0, 4, 1000)
+  y = np.exp(-(0.5 * x**2) ** config.beta)
+
+  gaussian_scale = x[np.argmax(y < 0.5 * config.alpha_threshold)]
+
   tile_size = config.tile_size
   grid_ops = make_grid_query(
     tile_size=tile_size, 
-    gaussian_scale=config.gaussian_scale, 
+    gaussian_scale=gaussian_scale, 
     tight_culling=config.tight_culling)
   
   grid_query = grid_ops.grid_query

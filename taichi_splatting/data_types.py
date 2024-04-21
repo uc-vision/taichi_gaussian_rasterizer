@@ -14,9 +14,6 @@ class RasterConfig:
   pixel_stride: Tuple[int, int] = (2, 2)
 
   margin_tiles: int = 3
-
-  # cutoff N standard deviations from mean
-  gaussian_scale: float = 3.0   
   
   # cull to an oriented box, otherwise an axis aligned bounding box
   tight_culling: bool = True  
@@ -25,7 +22,7 @@ class RasterConfig:
   alpha_threshold: float = 1. / 255.
   saturate_threshold: float = 0.9999
 
-  beta: float = 1.0 # multiplier on gaussian exponent e^-(d ^ (2 * beta))
+  beta: float = 2.0 # multiplier on gaussian exponent e^-(d ^ (2 * beta))
 
 
 
