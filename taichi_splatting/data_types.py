@@ -6,7 +6,7 @@ import torch
 
   
 @beartype
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=True)
 class RasterConfig:
   tile_size: int = 16
 

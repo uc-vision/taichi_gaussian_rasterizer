@@ -27,7 +27,6 @@ def render_function(config:RasterConfig,
                     feature_size:int,
                     dtype=torch.float32):
   
-
     
   forward = forward_kernel(config, feature_size=feature_size, dtype=torch_taichi[dtype])
   backward = backward_kernel(config, points_requires_grad,

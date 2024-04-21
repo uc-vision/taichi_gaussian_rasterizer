@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from numbers import Integral
 from beartype.typing import Tuple
 from beartype import beartype
@@ -47,6 +47,13 @@ class CameraParams:
   def camera_position(self):
     T_world_camera = torch.inverse(self.T_camera_world)
     return T_world_camera[0:3, 3]
+  
+  def scale_image(self, scale: float):
+    image_size = (int(self.image_size[0] * scale), int(self.image_size[1] * scale))
+    scaling = torch.tensor([[scale, 0, 0], [0, scale, 0], [0, 0, 1]], device=self.T_image_camera.device, dtype=self.T_image_camera.dtype)
+
+    return replace(self, image_size=image_size, T_image_camera=scaling @ self.T_image_camera)
+
 
   def to(self, device=None, dtype=None):
     return CameraParams(

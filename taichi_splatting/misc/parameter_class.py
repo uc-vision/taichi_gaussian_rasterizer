@@ -4,8 +4,9 @@ from beartype.typing import Callable,  Dict, Optional
 from tensordict import TensorDict
 import torch.optim as optim
 import torch
+from functools import partial
 
-
+default_optimizer = partial(optim.Adam, foreach=True, betas=(0.7, 0.999), amsgrad=True, weight_decay=0.0)
 
 class ParameterClass():
   """
@@ -25,7 +26,8 @@ class ParameterClass():
 
   def __init__(self, tensors:TensorDict, 
                learning_rates:Dict[str, float], 
-               param_state:Optional[Dict[str, torch.Tensor]]=None):
+               param_state:Optional[Dict[str, torch.Tensor]]=None,
+               optimizer = default_optimizer):
 
     self.tensors:TensorDict = as_parameters(tensors, learning_rates.keys())  
 
@@ -34,7 +36,9 @@ class ParameterClass():
         for name, lr in learning_rates.items()
     ]
 
-    self.optimizer = optim.Adam(param_groups, foreach=True, betas=(0.7, 0.99), amsgrad=True)
+    self.create_optimizer = optimizer
+    self.optimizer = self.create_optimizer(param_groups)
+    
 
     if param_state is not None:
       for k, v in param_state.items():
@@ -43,9 +47,10 @@ class ParameterClass():
 
   @beartype
   @staticmethod
-  def create(tensors:TensorDict, learning_rates:Dict[str, float], base_lr=1.0):
+  def create(tensors:TensorDict, learning_rates:Dict[str, float], base_lr=1.0, optimizer = default_optimizer):
     learning_rates = {k: v * base_lr for k, v in learning_rates.items()}
-    return ParameterClass(tensors, learning_rates)
+    
+    return ParameterClass(tensors, learning_rates, optimizer=optimizer)
   
   @property
   def learning_rates(self):
@@ -68,6 +73,18 @@ class ParameterClass():
   def step(self):
     self.optimizer.step()
 
+  def step_sparse(self, indexes:torch.Tensor):
+    self.to_sparse(indexes)
+    self.optimizer.step()
+
+
+  def to_sparse(self, indexes:torch.Tensor):
+    for k in self.optimized_keys():
+      v = self.tensors[k]
+      v.grad = torch.sparse_coo_tensor(indexes.view(1, -1), values=v.grad[indexes], size=v.shape)
+
+
+
   def keys(self):
     return self.tensors.keys()
 
@@ -89,7 +106,8 @@ class ParameterClass():
     return ParameterClass(
       as_parameters(self.tensors.to(device), self.optimized_keys()), 
       self.learning_rates, 
-      self._updated_state(lambda x: x.to(device))
+      self._updated_state(lambda x: x.to(device),
+      optimizer=self.create_optimizer)
     )
 
   def to_dict(self):
@@ -116,7 +134,7 @@ class ParameterClass():
 
   def __getitem__(self, idx):
     state = self._updated_state(lambda x: x[idx])
-    return ParameterClass(self.tensors[idx], self.learning_rates, state)
+    return ParameterClass(self.tensors[idx], self.learning_rates, state, optimizer=self.create_optimizer)
   
   def append_tensors(self, tensors:TensorDict):
     assert tensors.keys() == self.tensors.keys(), f"{tensors.keys()} != {self.tensors.keys()}"
@@ -125,7 +143,7 @@ class ParameterClass():
     state = self._updated_state(lambda x: torch.cat(
       [x, x.new_zeros(n, *x.shape[1:])] )
     )
-    return ParameterClass(torch.cat([self.tensors, tensors]), self.learning_rates, state)
+    return ParameterClass(torch.cat([self.tensors, tensors]), self.learning_rates, state, optimizer=self.create_optimizer)
 
   def append(self, params:'ParameterClass'):
     return self.append_tensors(params.tensors)

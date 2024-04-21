@@ -1,3 +1,4 @@
+from functools import partial
 import math
 from pathlib import Path
 import cv2
@@ -19,7 +20,7 @@ from taichi_splatting.torch_ops.util import check_finite
 from torch.profiler import profile, record_function, ProfilerActivity
 
 import time
-
+from torch import optim
 
 def parse_args():
   parser = argparse.ArgumentParser()
@@ -133,9 +134,10 @@ def main():
     alpha_logit=0.1,
     feature=0.01
   )
-  
+  create_optimizer = partial(optim.Adam, foreach=True, betas=(0.7, 0.999), amsgrad=True, weight_decay=0.0)
 
-  params = ParameterClass.create(gaussians.to_tensordict(), learning_rates, base_lr=1.0)
+
+  params = ParameterClass.create(gaussians.to_tensordict(), learning_rates, base_lr=1.0, optimizer=create_optimizer)
   keys = set(params.keys())
   trainable = set(params.optimized_keys())
 
