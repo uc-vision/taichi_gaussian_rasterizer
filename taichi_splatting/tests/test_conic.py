@@ -3,6 +3,7 @@ import torch
 import taichi as ti
 from tqdm import tqdm
 
+from taichi_splatting.conic.perspective.torch_projection import cov_to_conic
 from taichi_splatting.taichi_lib.f64 import (
   conic_pdf_with_grad, conic_pdf, vec2, vec3)
 
@@ -78,7 +79,10 @@ def random_inputs(n, device='cpu', dtype=torch.float64):
       dx = torch.randn(n, 2, device=device, dtype=dtype)
       uv = torch.rand(n, 2, device=device, dtype=dtype) * 100
 
-      conic = torch.randn(n, 3, device=device, dtype=dtype)
+      m = 10 * torch.randn(n, 2, 2, device=device, dtype=dtype)
+      cov = m @ m.transpose(-1, -2)
+
+      conic = cov_to_conic(cov)
 
       # No gradient on xy as conic_pdf_with_grad doesn't provide it
       return (uv + dx), uv.requires_grad_(True), conic.exp().requires_grad_(True)
