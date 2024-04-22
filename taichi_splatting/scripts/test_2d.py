@@ -106,10 +106,31 @@ def render_gaussians_kernel(
 
       p = m @ ti.Vector([u, v, 1., 1.])
 
-      g = ti.exp(-((u**2 + v**2) / 2)**beta )
-      output_image[y, x] += features[i] * g
+      g = ti.exp(-((u**2 + v**2) / 2)**beta)
 
-      depth_image[y, x] = ti.min(p.z, depth_image[y, x])
+      if p.z > 0:
+        output_image[y, x] += (features[i] * g)
+        depth_image[y, x] = ti.min(p.z, depth_image[y, x])
+
+
+def gaussian_grid(n, scale=2):
+  points = (grid_2d(n, n).view(-1, 2).to(torch.float32) - n // 2) * 2 * scale 
+  # points = (grid_2d(1, 1).view(-1, 2).to(torch.float32)) * 2
+
+  points_3d = torch.stack([*points.unbind(-1), torch.zeros_like(points[..., 0])], dim=-1)
+  n = points_3d.shape[0]
+
+  r = torch.tensor([1.0, 0.0, 0.0, 0.0])
+  s = torch.tensor([1.0, 1.0, 0.00001]) * scale / math.sqrt(2)
+
+  return Gaussians3D(
+    position = points_3d,
+    log_scaling = torch.log(s.view(1, 3)).expand(n, -1),
+    rotation = r.view(1, 4).expand(n, -1),
+    alpha_logit = torch.full((n, 1), fill_value=100.0),
+    feature = torch.rand(n, 3),
+    batch_size = (n,)
+  )
 
 
 def main():
@@ -120,7 +141,7 @@ def main():
   torch.set_default_device(device)
 
 
-  pos = torch.tensor([4.0, 4.0, 2.0])
+  pos = torch.tensor([4.0, 4.0, 3.0])
   target = torch.tensor([0.0, 0.0, 0.0])
 
   image_size = (1000, 1000)
@@ -145,42 +166,22 @@ def main():
      near_plane=0.1, far_plane=100.0
      ).to(device=device)
   
-  # points = (grid_2d(3, 3).view(-1, 2).to(torch.float32) - 1) * 2
-  points = (grid_2d(1, 1).view(-1, 2).to(torch.float32)) * 2
 
+  gaussians = gaussian_grid(5, scale=1.0).to(device=device)
 
-  points_3d = torch.stack([*points.unbind(-1), torch.zeros_like(points[..., 0])], dim=-1)
-  n = points_3d.shape[0]
-
-  r = torch.tensor([1.0, 0.0, 0.0, 0.0])
-  s = torch.tensor([0.5, 0.5, 0.000001]) / math.sqrt(2)
-
-  gaussians = Gaussians3D(
-    position = points_3d,
-    log_scaling = torch.log(s.view(1, 3)).expand(n, -1),
-    rotation = r.view(1, 4).expand(n, -1),
-    alpha_logit = torch.full((n, 1), fill_value=100.0),
-    feature = torch.rand(n, 3),
-    batch_size = (n,)
-  ).to(device=device)
 
   image_t_splat = project_planes(gaussians.position, gaussians.log_scaling, gaussians.rotation, gaussians.alpha_logit,
-                     torch.arange(n), T_image_camera, T_camera_world).contiguous()
-
+                     torch.arange(gaussians.batch_size[0]), T_image_camera, T_camera_world).contiguous()
 
   def find_threshold(alpha, beta):
     x = np.linspace(0, 4, 10000)
     y = np.exp(-(0.5 * x**2) ** beta)
-
     return x[np.argmax(y < alpha)]
 
-
-  config = RasterConfig(gaussian_scale=find_threshold(alpha=0.01, beta=10.0), 
-                        beta=10.0, alpha_threshold=0.01)
+  config = RasterConfig(beta=10.0, alpha_threshold=0.01)
 
 
-  r = config.gaussian_scale
-
+  r=find_threshold(config.alpha_threshold, config.beta)
   uv = torch.Tensor([[-r, -r, 1, 1], [r, -r, 1, 1], [r, r, 1, 1], [-r, r, 1, 1]]).to(device=device)
 
   # project corners
@@ -207,22 +208,22 @@ def main():
 
 
   
-  print(config)
+  # print(config)
 
-  render = render_gaussians(gaussians, camera_params, config=config, compute_radii=True)
-  image = numpy_image(render.image)
+  # render = render_gaussians(gaussians, camera_params, config=config, compute_radii=True)
+  # image = numpy_image(render.image)
 
-  for uv, radii in zip(render.gaussians_2d[:, :2], render.radii):
-    uv = uv.cpu().numpy()
-    radius = int(radii.item())
+  # for uv, radii in zip(render.gaussians_2d[:, :2], render.radii):
+  #   uv = uv.cpu().numpy()
+  #   radius = int(radii.item())
 
-    corners = uv.reshape(1, -1) + np.array([[-radius, -radius], [radius, -radius], [radius, radius], [-radius, radius]])
-    corners = corners.astype(int)
-    for i in range(4):
-      a, b = corners[i], corners[(i + 1) % 4]
-      cv2.line(image, tuple(a), tuple(b), (255, 255, 255))
+  #   corners = uv.reshape(1, -1) + np.array([[-radius, -radius], [radius, -radius], [radius, radius], [-radius, radius]])
+  #   corners = corners.astype(int)
+  #   for i in range(4):
+  #     a, b = corners[i], corners[(i + 1) % 4]
+  #     cv2.line(image, tuple(a), tuple(b), (255, 255, 255))
 
-  display_image("image", image)
+  # display_image("image", image)
   
 
 
