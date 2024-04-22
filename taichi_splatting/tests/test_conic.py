@@ -83,9 +83,8 @@ def random_inputs(n, device='cpu', dtype=torch.float64):
       cov = m @ m.transpose(-1, -2)
 
       conic = cov_to_conic(cov)
+      return  [(uv + dx)] + [t.contiguous().requires_grad_(True) for t in [uv, conic]]
 
-      # No gradient on xy as conic_pdf_with_grad doesn't provide it
-      return (uv + dx), uv.requires_grad_(True), conic.exp().requires_grad_(True)
     return f
 
 def test_conic():
