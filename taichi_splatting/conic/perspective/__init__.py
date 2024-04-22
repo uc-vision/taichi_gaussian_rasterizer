@@ -1,5 +1,5 @@
 from .projection import project_to_conic
-from ...camera_params import CameraParams
+from taichi_splatting.camera_params import CameraParams
 
 
 __all__ = [

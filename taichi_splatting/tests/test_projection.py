@@ -8,7 +8,7 @@ from taichi_splatting.torch_lib.util import check_finite
 import taichi_splatting.conic.perspective.projection as ti_proj
 from taichi_splatting.tests.random_data import random_camera, random_3d_gaussians
 
-import taichi_splatting.conic.perspective  as torch_proj
+import taichi_splatting.conic.perspective.torch_projection  as torch_proj
 
 
 import torch
