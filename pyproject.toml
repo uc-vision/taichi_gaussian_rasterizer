@@ -35,7 +35,7 @@ build-backend = "setuptools.build_meta"
 dependency_links = ["https://pypi.taichi.graphics/simple/"]
 
 [project.scripts]  # Optional
-fit_image_gaussians = "taichi_splatting.conic.example.fit_image_gaussians:main"
+fit_image_gaussians = "taichi_splatting.fit_image_gaussians:main"
 bench_projection = "taichi_splatting.benchmarks.bench_conic_projection:main"
 bench_rasterizer = "taichi_splatting.benchmarks.bench_conic_rasterizer:main"
 bench_tilemapper = "taichi_splatting.benchmarks.bench_tilemapper:main"

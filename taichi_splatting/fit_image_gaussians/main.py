@@ -105,8 +105,10 @@ def main():
   device = torch.device('cuda:0')
 
   cmd_args = parse_args()
-  
+
   ref_image = cv2.imread(cmd_args.image_file)
+  assert ref_image is not None, f'Could not read {cmd_args.image_file}'
+  
   h, w = ref_image.shape[:2]
 
   ti.init(arch=ti.cuda, log_level=ti.INFO, 
