@@ -38,7 +38,7 @@ def project_to_image_function(torch_dtype=torch.float32):
     T_image_camera: ti.types.ndarray(ndim=2),  # (3, 3) camera projection
     T_camera_world: ti.types.ndarray(ndim=2),  # (4, 4)
     
-    points: ti.types.ndarray(lib.Gaussian2D.vec, ndim=1),  # (N, 6)
+    points: ti.types.ndarray(lib.GaussianConic.vec, ndim=1),  # (N, 6)
     depth_var: ti.types.ndarray(lib.vec3, ndim=1),  # (N, 3)
     blur_cov:ti.f32
   ):
@@ -64,7 +64,7 @@ def project_to_image_function(torch_dtype=torch.float32):
       uv_conic = lib.inverse_cov(uv_cov)
 
       depth_var[i] = lib.vec3(point_in_camera.z, cov_in_camera[2, 2], point_in_camera.z ** 2)
-      points[i] = lib.Gaussian2D.to_vec(
+      points[i] = lib.GaussianConic.to_vec(
           uv=uv.xy,
           uv_conic=uv_conic,
           alpha=lib.sigmoid(alpha_logit[idx][0]),
@@ -82,7 +82,7 @@ def project_to_image_function(torch_dtype=torch.float32):
 
       n = indexes.shape[0]
 
-      points = torch.empty((n, lib.Gaussian2D.vec.n), dtype=dtype, device=device)
+      points = torch.empty((n, lib.GaussianConic.vec.n), dtype=dtype, device=device)
       depth_vars = torch.empty((n, 3), dtype=dtype, device=device)
 
       gaussian_tensors = (position, log_scaling, rotation, alpha_logit)

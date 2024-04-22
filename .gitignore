@@ -10,6 +10,8 @@ __pycache__/
 *.pth
 *.pt
 
+outputs/
+
 # Distribution / packaging
 .Python
 build/

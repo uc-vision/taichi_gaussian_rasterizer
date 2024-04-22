@@ -10,7 +10,7 @@ from taichi_splatting import cuda_lib
 from taichi_splatting.data_types import RasterConfig
 from taichi_splatting.taichi_lib.concurrent import add, block_reduce_i32, warp_allocate
 
-from taichi_splatting.taichi_lib.f32 import (Gaussian2D)
+from taichi_splatting.taichi_lib.f32 import (GaussianConic)
 from taichi_splatting.taichi_lib.grid_query import make_grid_query
 from taichi_splatting.taichi_lib.conversions import torch_taichi
 
@@ -69,7 +69,7 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
   
   @ti.kernel
   def tile_overlaps_kernel(
-      gaussians: ti.types.ndarray(Gaussian2D.vec, ndim=1),  
+      gaussians: ti.types.ndarray(GaussianConic.vec, ndim=1),  
       image_size: ivec2
   ) -> ti.i32:
       
@@ -108,7 +108,7 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
   @ti.kernel
   def generate_sort_keys_kernel(
       depth: ti.types.ndarray(torch_taichi[depth_type], ndim=1),  # (M)
-      gaussians : ti.types.ndarray(Gaussian2D.vec, ndim=1),  # (M)
+      gaussians : ti.types.ndarray(GaussianConic.vec, ndim=1),  # (M)
 
       image_size: ivec2,
 

@@ -11,7 +11,7 @@ from taichi_splatting.taichi_lib import get_library
 def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
 
   lib = get_library(dtype)
-  Gaussian2D = lib.Gaussian2D
+  GaussianConic = lib.GaussianConic
 
   feature_vec = ti.types.vector(feature_size, dtype=dtype)
   tile_size = config.tile_size
@@ -20,7 +20,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
 
   @ti.kernel
   def _forward_kernel(
-      points: ti.types.ndarray(Gaussian2D.vec, ndim=1),  # (M, 6)
+      points: ti.types.ndarray(GaussianConic.vec, ndim=1),  # (M, 6)
       point_features: ti.types.ndarray(feature_vec, ndim=1),  # (M, F)
       
       # (TH, TW, 2) the start/end (0..K] index of ranges in the overlap_to_point array
@@ -59,7 +59,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
       accum_feature = feature_vec(0.)
 
       # open the shared memory
-      tile_point = ti.simt.block.SharedArray((tile_area, ), dtype=Gaussian2D.vec)
+      tile_point = ti.simt.block.SharedArray((tile_area, ), dtype=GaussianConic.vec)
       tile_feature = ti.simt.block.SharedArray((tile_area, ), dtype=feature_vec)
 
       start_offset, end_offset = tile_overlap_ranges[tile_id]
@@ -100,7 +100,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
           if pixel_saturated:
             break
 
-          uv, uv_conic, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
+          uv, uv_conic, point_alpha = GaussianConic.unpack(tile_point[in_group_idx])
           gaussian_alpha = lib.conic_pdf(pixelf, uv, uv_conic, beta=config.beta)
           alpha = point_alpha * gaussian_alpha
 

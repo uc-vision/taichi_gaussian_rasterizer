@@ -8,7 +8,7 @@ from taichi.math import ivec2, vec2
 import torch
 from taichi_splatting.data_types import RasterConfig
 
-from taichi_splatting.taichi_lib.f32 import (Gaussian2D)
+from taichi_splatting.taichi_lib.f32 import (GaussianConic)
 from taichi_splatting.cuda_lib import full_cumsum, segmented_sort_pairs
 
 from taichi_splatting.taichi_lib.grid_query import make_grid_query
@@ -37,7 +37,7 @@ def tile_mapper(config:RasterConfig, depth_type):
 
   @ti.kernel
   def count_tile_overlaps_kernel(
-      gaussians: ti.types.ndarray(Gaussian2D.vec, ndim=1), 
+      gaussians: ti.types.ndarray(GaussianConic.vec, ndim=1), 
       image_size: ivec2,
       tile_counts: ti.types.ndarray(ti.i32, ndim=2), 
   ):
@@ -63,7 +63,7 @@ def tile_mapper(config:RasterConfig, depth_type):
   def partition_tiles_kernel(
       depths: ti.types.ndarray(ti_depth_type, ndim=1),  # (M)
 
-      gaussians : ti.types.ndarray(Gaussian2D.vec, ndim=1),  # (M)
+      gaussians : ti.types.ndarray(GaussianConic.vec, ndim=1),  # (M)
       tile_offsets: ti.types.ndarray(ti.i32, ndim=2),  # (H, W)
 
       image_size: ivec2,

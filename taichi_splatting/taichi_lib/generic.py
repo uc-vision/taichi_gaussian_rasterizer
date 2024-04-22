@@ -27,7 +27,7 @@ def make_library(dtype=ti.f32):
 
 
   @ti.dataclass
-  class Gaussian2D:
+  class GaussianConic:
       uv        : vec2
       uv_conic  : vec3
       alpha   : dtype
@@ -50,7 +50,7 @@ def make_library(dtype=ti.f32):
           return ti.math.exp(self.log_scaling)
 
 
-  vec_g2d = ti.types.vector(struct_size(Gaussian2D), dtype=dtype)
+  vec_g2d = ti.types.vector(struct_size(GaussianConic), dtype=dtype)
   vec_g3d = ti.types.vector(struct_size(Gaussian3D), dtype=dtype)
 
 
@@ -68,7 +68,7 @@ def make_library(dtype=ti.f32):
     return vec[0:3], vec[3:6], vec[6:10], vec[10]
 
   @ti.func
-  def unpack_vec_g2d(vec:vec_g2d) -> Gaussian2D:
+  def unpack_vec_g2d(vec:vec_g2d) -> GaussianConic:
     return vec[0:2], vec[2:5], vec[5]
 
   @ti.func
@@ -94,8 +94,8 @@ def make_library(dtype=ti.f32):
     return Gaussian3D(vec[0:3], vec[3:6], vec[6:10], vec[10])
 
   @ti.func
-  def from_vec_g2d(vec:vec_g2d) -> Gaussian2D:
-    return Gaussian2D(vec[0:2], vec[2:5], vec[5])
+  def from_vec_g2d(vec:vec_g2d) -> GaussianConic:
+    return GaussianConic(vec[0:2], vec[2:5], vec[5])
 
 
   @ti.func
@@ -112,14 +112,14 @@ def make_library(dtype=ti.f32):
     return position, ti.exp(log_scaling).max() * gaussian_scale
 
   # Taichi structs don't have static methods, but they can be added afterward
-  Gaussian2D.vec = vec_g2d
-  Gaussian2D.to_vec = to_vec_g2d
-  Gaussian2D.from_vec = from_vec_g2d
-  Gaussian2D.unpack = unpack_vec_g2d
+  GaussianConic.vec = vec_g2d
+  GaussianConic.to_vec = to_vec_g2d
+  GaussianConic.from_vec = from_vec_g2d
+  GaussianConic.unpack = unpack_vec_g2d
 
-  Gaussian2D.get_position = get_position_g2d
-  Gaussian2D.get_conic = get_conic_g2d
-  Gaussian2D.get_cov = get_cov_g2d
+  GaussianConic.get_position = get_position_g2d
+  GaussianConic.get_conic = get_conic_g2d
+  GaussianConic.get_cov = get_cov_g2d
 
 
   Gaussian3D.vec = vec_g3d

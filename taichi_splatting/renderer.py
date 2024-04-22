@@ -122,7 +122,7 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
     feature_image = feature_image[..., 3:]
 
   heuristics = raster.point_split_heuristics if compute_split_heuristics else None
-  radii = compute_radius(gaussians2d, config.gaussian_scale) if compute_radii else None
+  radii = compute_radius(gaussians2d) if compute_radii else None
 
   return Rendering(image=feature_image, 
                   image_weight=raster.image_weight, 

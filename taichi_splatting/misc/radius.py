@@ -19,12 +19,12 @@ def compute_radius_func(torch_dtype=torch.float32, gaussian_scale:float=3.0):
 
   @ti.kernel
   def radius_kernel(  
-    gaussians2d: ti.types.ndarray(lib.Gaussian2D.vec, ndim=1),  # (N, 6) - packed 2d gaussians
+    gaussians2d: ti.types.ndarray(lib.GaussianConic.vec, ndim=1),  # (N, 6) - packed 2d gaussians
     radii: ti.types.ndarray(dtype, ndim=1),  # (N, 1) - output radii
   ):
 
     for i in range(gaussians2d.shape[0]):
-      uv_cov = lib.Gaussian2D.get_cov(gaussians2d[i])
+      uv_cov = lib.GaussianConic.get_cov(gaussians2d[i])
       radii[i] = lib.radii_from_cov(uv_cov) * gaussian_scale
 
 

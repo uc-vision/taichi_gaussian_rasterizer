@@ -19,7 +19,7 @@ def backward_kernel(config: RasterConfig,
                     dtype=ti.f32):
   
   lib = get_library(dtype)
-  Gaussian2D, vec2 = lib.Gaussian2D, lib.vec2
+  GaussianConic, vec2 = lib.GaussianConic, lib.vec2
   warp_add_vector = warp_add_vector_32 if dtype == ti.f32 else warp_add_vector_64
 
   feature_vec = ti.types.vector(feature_size, dtype=dtype)
@@ -45,7 +45,7 @@ def backward_kernel(config: RasterConfig,
 
   @ti.kernel
   def _backward_kernel(
-      points: ti.types.ndarray(Gaussian2D.vec, ndim=1),  # (M, 6)
+      points: ti.types.ndarray(GaussianConic.vec, ndim=1),  # (M, 6)
       point_features: ti.types.ndarray(feature_vec, ndim=1),  # (M, F)
       
       # (TH, TW, 2) the start/end (0..K] index of ranges in the overlap_to_point array
@@ -61,7 +61,7 @@ def backward_kernel(config: RasterConfig,
       grad_image_feature: ti.types.ndarray(feature_vec, ndim=2),  # (H, W, F)
 
       # output gradients
-      grad_points: ti.types.ndarray(Gaussian2D.vec, ndim=1),  # (M, C)
+      grad_points: ti.types.ndarray(GaussianConic.vec, ndim=1),  # (M, C)
       grad_features: ti.types.ndarray(feature_vec, ndim=1),  # (M, F)
 
       point_split_heuristics: ti.types.ndarray(vec2, ndim=1),  # (M)
@@ -82,10 +82,10 @@ def backward_kernel(config: RasterConfig,
 
       # open the shared memory
       tile_point_id = ti.simt.block.SharedArray((block_area, ), dtype=ti.i32)
-      tile_point = ti.simt.block.SharedArray((block_area, ), dtype=Gaussian2D.vec)
+      tile_point = ti.simt.block.SharedArray((block_area, ), dtype=GaussianConic.vec)
       tile_feature = ti.simt.block.SharedArray((block_area, ), dtype=feature_vec)
 
-      tile_grad_point = (ti.simt.block.SharedArray((block_area, ), dtype=Gaussian2D.vec)
+      tile_grad_point = (ti.simt.block.SharedArray((block_area, ), dtype=GaussianConic.vec)
         if ti.static(points_requires_grad) else None)
       
       tile_grad_feature = (ti.simt.block.SharedArray((block_area,), dtype=feature_vec)
@@ -147,7 +147,7 @@ def backward_kernel(config: RasterConfig,
           tile_feature[tile_idx] = point_features[point_idx]
 
           if ti.static(points_requires_grad):
-            tile_grad_point[tile_idx] = Gaussian2D.vec(0.0)
+            tile_grad_point[tile_idx] = GaussianConic.vec(0.0)
 
           if ti.static(features_requires_grad):
             tile_grad_feature[tile_idx] = feature_vec(0.0)
@@ -164,9 +164,9 @@ def backward_kernel(config: RasterConfig,
         for in_group_idx in range(point_group_size):
           point_index = end_offset - (group_offset_base + in_group_idx)
 
-          uv, uv_conic, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
+          uv, uv_conic, point_alpha = GaussianConic.unpack(tile_point[in_group_idx])
 
-          grad_point = Gaussian2D.vec(0.0)
+          grad_point = GaussianConic.vec(0.0)
           grad_feature = feature_vec(0.0)
           contribution = vec2(0.0)
 
@@ -197,7 +197,7 @@ def backward_kernel(config: RasterConfig,
               w_i[i, :] += feature * weight
               alpha_grad: dtype = alpha_grad_from_feature.sum()
 
-              grad_point += alpha_grad * Gaussian2D.to_vec(
+              grad_point += alpha_grad * GaussianConic.to_vec(
                   point_alpha * dp_dmean, 
                   point_alpha * dp_dconic,
                   gaussian_alpha)
