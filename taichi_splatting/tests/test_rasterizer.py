@@ -4,8 +4,8 @@ import argparse
 
 from tqdm import tqdm
 from taichi_splatting.data_types import RasterConfig
-from taichi_splatting.misc.renderer2d import  project_gaussians2d
-from taichi_splatting.rasterizer.function import rasterize_with_tiles
+from taichi_splatting.conic.renderer2d import  project_gaussians2d
+from taichi_splatting.conic.rasterizer.function import rasterize_with_tiles
 from taichi_splatting.tests.random_data import random_2d_gaussians
 
 import numpy as np

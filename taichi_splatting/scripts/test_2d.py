@@ -6,9 +6,9 @@ import torch.nn.functional as F
 import cv2
 
 from taichi_splatting.data_types import Gaussians3D, RasterConfig
-from taichi_splatting.perspective.params import CameraParams
-from taichi_splatting.renderer import render_gaussians
-from taichi_splatting.torch_ops.transforms import expand44, join_rt, make_homog, quat_to_mat, transform33, transform44
+from taichi_splatting.camera_params import CameraParams
+from taichi_splatting.conic.renderer import render_gaussians
+from taichi_splatting.torch_lib.transforms import expand44, join_rt, make_homog, quat_to_mat, transform33, transform44
 
 import taichi as ti
 

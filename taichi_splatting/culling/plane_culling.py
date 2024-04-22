@@ -4,9 +4,9 @@ import torch
 
 from taichi_splatting.data_types import check_packed3d
 from taichi_splatting.taichi_lib.f32 import Gaussian3D
-from taichi_splatting.torch_ops.transforms import transform44
+from taichi_splatting.torch_lib.transforms import transform44
 
-from .params import CameraParams
+from ..camera_params import CameraParams
  
 
 def planes_from_points(points: torch.Tensor):

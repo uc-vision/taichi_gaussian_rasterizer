@@ -5,10 +5,10 @@ import torch
 import torch.nn.functional as F
 
 from taichi_splatting.data_types import Gaussians2D, Gaussians3D
-from taichi_splatting.perspective import CameraParams
+from taichi_splatting.conic.perspective import CameraParams
 
-from taichi_splatting.torch_ops.transforms import join_rt
-from taichi_splatting.torch_ops import projection as torch_proj
+from taichi_splatting.torch_lib import transforms
+from taichi_splatting.torch_lib.util import inverse_sigmoid
 
 
 
@@ -16,7 +16,7 @@ def random_camera(pos_scale:float=1., image_size:Optional[Tuple[int, int]]=None,
   q = F.normalize(torch.randn((1, 4)))
   t = torch.randn((3)) * pos_scale
 
-  T_world_camera = join_rt(torch_proj.quat_to_mat(q), t)
+  T_world_camera = transforms.join_rt(transforms.quat_to_mat(q), t)
   T_camera_world = torch.inverse(T_world_camera)
 
   if image_size is None:
@@ -58,7 +58,7 @@ def random_3d_gaussians(n, camera_params:CameraParams,
   depth_range = camera_params.far_plane - camera_params.near_plane
   depth = torch.rand(n) * depth_range + camera_params.near_plane   
 
-  position = torch_proj.unproject_points(uv_pos, depth.unsqueeze(1), camera_params.T_image_world)
+  position = transforms.unproject_points(uv_pos, depth.unsqueeze(1), camera_params.T_image_world)
   fx = camera_params.T_image_camera[0, 0]
 
   scale =  (w / math.sqrt(n)) * (depth / fx) * scale_factor
@@ -74,7 +74,7 @@ def random_3d_gaussians(n, camera_params:CameraParams,
     position=position,
     log_scaling=torch.log(scaling),
     rotation=rotation,
-    alpha_logit=torch_proj.inverse_sigmoid(alpha).unsqueeze(1),
+    alpha_logit=inverse_sigmoid(alpha).unsqueeze(1),
     feature=torch.rand(n, 3),
     batch_size=(n,)
   )
@@ -100,7 +100,7 @@ def random_2d_gaussians(n, image_size:Tuple[int, int], num_channels=3, scale_fac
     depth=depth,
     log_scaling=torch.log(scaling),
     rotation=rotation,
-    alpha_logit=torch_proj.inverse_sigmoid(alpha),
+    alpha_logit=inverse_sigmoid(alpha),
     feature=torch.rand(n, num_channels),
     batch_size=(n,)
   )

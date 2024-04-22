@@ -2,7 +2,7 @@
 from functools import cache
 import taichi as ti
 from taichi_splatting.data_types import RasterConfig
-from taichi_splatting.rasterizer import tiling
+from taichi_splatting.conic.rasterizer import tiling
 from taichi_splatting.taichi_lib import get_library
 
 

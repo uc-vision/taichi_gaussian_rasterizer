@@ -15,6 +15,7 @@ def quat_to_mat(quat: torch.Tensor) -> torch.Tensor:
 
 
 
+
 def split_rt(
     transform: torch.Tensor,  # (batch_size, 4, 4)
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -69,4 +70,17 @@ def transform33(transform, points):
   transformed = transform.reshape([1, 3, 3]) @ points
   return transformed[..., 0].reshape(-1, 3)
 
+
+
+def project_points(transform, xyz):
+  homog = transform44(transform, make_homog(xyz))
+  depth = homog[..., 2:3]
+  xy = homog[..., 0:2] 
+  return (xy / depth), depth
+
+def unproject_points(uv, depth, transform):
+  points = torch.concatenate(
+     [uv * depth, depth, torch.ones_like(depth)], axis=-1)
+  transformed = transform44(torch.inverse(transform), points)
+  return transformed[..., 0:3] / transformed[..., 3:4]
 

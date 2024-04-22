@@ -7,7 +7,7 @@ import torch
 from taichi_splatting.data_types import Gaussians3D
 from taichi_splatting.misc.autograd import restore_grad
 
-from .params import CameraParams
+from taichi_splatting.camera_params import CameraParams
 from taichi_splatting.taichi_lib import get_library
 from taichi_splatting.taichi_lib.conversions import torch_taichi
 
@@ -21,13 +21,13 @@ warnings.filterwarnings('ignore', '(.*)that is not a leaf Tensor is being access
 
 
 @cache
-def project_to_image_function(torch_dtype=torch.float32):
+def project_to_conic_function(torch_dtype=torch.float32):
   dtype = torch_taichi[torch_dtype]
   lib = get_library(dtype)
 
 
   @ti.kernel
-  def project_perspective_kernel(  
+  def project_conic_kernel(  
     position: ti.types.ndarray(lib.vec3, ndim=1),  # (M, 3) 
     log_scale: ti.types.ndarray(lib.vec3, ndim=1),  # (M, 3)
     rotation: ti.types.ndarray(lib.vec4,  ndim=1),  # (M, 4)
@@ -56,7 +56,7 @@ def project_to_image_function(torch_dtype=torch.float32):
       cov_in_camera = lib.gaussian_covariance_in_camera(
           camera_world, ti.math.normalize(rotation[idx]), ti.exp(log_scale[idx]))
 
-      uv_cov = lib.upper(lib.project_perspective_gaussian(
+      uv_cov = lib.upper(lib.project_perspective_conic(
           camera_image, point_in_camera, cov_in_camera))
       
       # add small fudge factor blur to avoid numerical issues
@@ -88,7 +88,7 @@ def project_to_image_function(torch_dtype=torch.float32):
       gaussian_tensors = (position, log_scaling, rotation, alpha_logit)
 
 
-      project_perspective_kernel(*gaussian_tensors, 
+      project_conic_kernel(*gaussian_tensors, 
             indexes,
             T_image_camera, T_camera_world,
             points, depth_vars,
@@ -113,7 +113,7 @@ def project_to_image_function(torch_dtype=torch.float32):
         points.grad = dpoints.contiguous()
         depth_vars.grad = ddepth_vars.contiguous()
         
-        project_perspective_kernel.grad(
+        project_conic_kernel.grad(
           *gaussian_tensors,  
           ctx.indexes,
           T_image_camera, T_camera_world, 
@@ -133,7 +133,7 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
           T_image_camera:torch.Tensor, T_camera_world:torch.Tensor,
           blur_cov:float=0.3):
   
-  _module_function = project_to_image_function(position.dtype)
+  _module_function = project_to_conic_function(position.dtype)
   return _module_function.apply(
     position.contiguous(),
     log_scaling.contiguous(),
@@ -147,7 +147,7 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
     blur_cov)
 
 @beartype
-def project_to_image(gaussians:Gaussians3D, indexes:torch.Tensor, camera_params: CameraParams, 
+def project_to_conic(gaussians:Gaussians3D, indexes:torch.Tensor, camera_params: CameraParams, 
                      ) -> Tuple[torch.Tensor, torch.Tensor]:
   """ 
   Project 3D gaussians to 2D gaussians in image space using perspective projection.

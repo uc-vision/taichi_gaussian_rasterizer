@@ -1,7 +1,7 @@
 from functools import cache
 import taichi as ti
 from taichi_splatting.data_types import RasterConfig
-from taichi_splatting.rasterizer import tiling
+from taichi_splatting.conic.rasterizer import tiling
 from taichi_splatting.taichi_lib.concurrent import WARP_SIZE, block_reduce_i32, warp_add_vector_32, warp_add_vector_64
 
 from taichi_splatting.taichi_lib import get_library

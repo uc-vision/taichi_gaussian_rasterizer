@@ -29,10 +29,11 @@ def kernel_conic_pdf_grad(
    uv_conic : ti.types.ndarray(vec3, ndim=1),
 
    dp_duv : ti.types.ndarray(vec2, ndim=1),
-   dp_dconic : ti.types.ndarray(vec3, ndim=1)):
+   dp_dconic : ti.types.ndarray(vec3, ndim=1),
+   beta: ti.template()):
 
    for i in range(uv.shape[0]):
-      _, grad_uv, grad_conic = conic_pdf_with_grad(xy[i], uv[i], uv_conic[i])
+      _, grad_uv, grad_conic = conic_pdf_with_grad(xy[i], uv[i], uv_conic[i], beta)
       dp_duv[i] = grad_uv
       dp_dconic[i] = grad_conic
 
@@ -42,19 +43,21 @@ def kernel_conic_pdf(
    uv : ti.types.ndarray(vec2, ndim=1),
    uv_conic : ti.types.ndarray(vec3, ndim=1),
 
-   out_p : ti.types.ndarray(ti.f64, ndim=1)):
+   out_p : ti.types.ndarray(ti.f64, ndim=1),
+   beta: ti.template()):
 
    for i in range(uv.shape[0]):
-      p = conic_pdf(xy[i], uv[i], uv_conic[i])
+      p = conic_pdf(xy[i], uv[i], uv_conic[i], beta)
       out_p[i] = p
            
 
 class ConicPdf(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, xy, uv, uv_conic):
+    def forward(ctx, xy, uv, uv_conic, beta=1.0):
         p = torch.zeros_like(xy[:, 0])
+        ctx.beta = beta
         ctx.save_for_backward(xy, uv, uv_conic, p)
-        kernel_conic_pdf(xy, uv, uv_conic, p)
+        kernel_conic_pdf(xy, uv, uv_conic, p, beta)
         return p
 
     @staticmethod
@@ -62,7 +65,7 @@ class ConicPdf(torch.autograd.Function):
         xy, uv, uv_conic, _ = ctx.saved_tensors
         grad_uv = torch.zeros_like(uv)
         grad_conic = torch.zeros_like(uv_conic)
-        kernel_conic_pdf_grad(xy, uv, uv_conic, grad_uv, grad_conic)
+        kernel_conic_pdf_grad(xy, uv, uv_conic, grad_uv, grad_conic, ctx.beta)
 
         grad_p = grad_p.unsqueeze(1)
         return None, grad_uv * grad_p, grad_conic * grad_p

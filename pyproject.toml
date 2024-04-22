@@ -1,6 +1,6 @@
 [project]
 name = "taichi-splatting"  
-version = "0.12.0"  
+version = "1.0.0"  
 description = "A Taichi Gaussian Splatting library"  
 readme = "README.md" 
 requires-python = ">=3.10"
@@ -35,7 +35,7 @@ build-backend = "setuptools.build_meta"
 dependency_links = ["https://pypi.taichi.graphics/simple/"]
 
 [project.scripts]  # Optional
-fit_image_gaussians = "taichi_splatting.example_2d_conic.fit_image_gaussians:main"
+fit_image_gaussians = "taichi_splatting.conic.example.fit_image_gaussians:main"
 bench_projection = "taichi_splatting.benchmarks.bench_conic_projection:main"
 bench_rasterizer = "taichi_splatting.benchmarks.bench_conic_rasterizer:main"
 bench_tilemapper = "taichi_splatting.benchmarks.bench_tilemapper:main"

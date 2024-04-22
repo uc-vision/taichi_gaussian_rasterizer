@@ -207,7 +207,7 @@ def make_library(dtype=ti.f32):
          
 
   @ti.func
-  def project_perspective_gaussian(
+  def project_perspective_conic(
       projective_transform: mat3,
       point_in_camera: vec3,
       cov_in_camera: mat3) -> mat2:

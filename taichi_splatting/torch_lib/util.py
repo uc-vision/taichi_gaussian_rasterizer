@@ -1,6 +1,14 @@
 import torch
 from typing import Mapping
 
+
+
+def inverse_sigmoid(x:torch.Tensor):
+  return torch.log(x / (1 - x))
+
+
+
+
 def check_finite(t, name, warn=False):
   
   if isinstance(t, torch.Tensor):

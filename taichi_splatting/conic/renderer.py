@@ -9,11 +9,12 @@ from taichi_splatting.data_types import Gaussians3D
 from taichi_splatting.misc.depth_variance import compute_depth_variance
 from taichi_splatting.misc.encode_depth import encode_depth
 from taichi_splatting.misc.radius import compute_radius
-from taichi_splatting.rasterizer import rasterize, RasterConfig
 from taichi_splatting.spherical_harmonics import  evaluate_sh_at
 
-from taichi_splatting.perspective import (
-  frustum_culling, project_to_image, CameraParams)
+from taichi_splatting.conic.rasterizer import rasterize, RasterConfig
+from taichi_splatting.conic.perspective import (project_to_conic, CameraParams)
+
+from taichi_splatting.culling import (frustum_culling)
 
 
 
@@ -91,7 +92,7 @@ def render_gaussians(
     features = gaussians.feature[indexes]
     assert len(features.shape) == 2, f"Features must be (N, C) if use_sh=False, got {features.shape}"
 
-  gaussians2d, depthvars = project_to_image(gaussians, indexes, camera_params)
+  gaussians2d, depthvars = project_to_conic(gaussians, indexes, camera_params)
   return render_projected(indexes, gaussians2d, features, depthvars, camera_params, config, 
                    render_depth=render_depth, use_depth16=use_depth16,
                    compute_split_heuristics=compute_split_heuristics, compute_radii=compute_radii)

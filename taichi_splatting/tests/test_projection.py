@@ -1,13 +1,15 @@
 from typing import Callable, Tuple
 from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians3D
-from taichi_splatting.perspective.params import CameraParams
+from taichi_splatting.camera_params import CameraParams
 
 from taichi_splatting.tests.util import eval_with_grad
-import taichi_splatting.torch_ops.projection as torch_proj
-from taichi_splatting.torch_ops.util import check_finite
-import taichi_splatting.perspective.projection as ti_proj
+from taichi_splatting.torch_lib.util import check_finite
+import taichi_splatting.conic.perspective.projection as ti_proj
 from taichi_splatting.tests.random_data import random_camera, random_3d_gaussians
+
+import taichi_splatting.conic.perspective  as torch_proj
+
 
 import torch
 import taichi as ti

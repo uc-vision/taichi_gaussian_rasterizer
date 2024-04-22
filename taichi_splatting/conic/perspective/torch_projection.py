@@ -3,26 +3,12 @@ from beartype.typing import Tuple
 import torch
 import torch.nn.functional as F
 
-from taichi_splatting.perspective import CameraParams
+from taichi_splatting.conic.perspective import CameraParams
 from taichi_splatting.data_types import Gaussians3D
-from taichi_splatting.torch_ops.transforms import make_homog, quat_to_mat, transform33, transform44
+from taichi_splatting.torch_lib.transforms import make_homog, quat_to_mat, transform33, transform44
 
 
 
-def inverse_sigmoid(x:torch.Tensor):
-  return torch.log(x / (1 - x))
-
-def project_points(transform, xyz):
-  homog = transform44(transform, make_homog(xyz))
-  depth = homog[..., 2:3]
-  xy = homog[..., 0:2] 
-  return (xy / depth), depth
-
-def unproject_points(uv, depth, transform):
-  points = torch.concatenate(
-     [uv * depth, depth, torch.ones_like(depth)], axis=-1)
-  transformed = transform44(torch.inverse(transform), points)
-  return transformed[..., 0:3] / transformed[..., 3:4]
 
 
 

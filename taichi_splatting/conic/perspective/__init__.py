@@ -1,11 +1,9 @@
-from .culling import frustum_culling
-from .projection import project_to_image
-from .params import CameraParams
+from .projection import project_to_conic
+from ...camera_params import CameraParams
 
 
 __all__ = [
-  'frustum_culling',
-  'project_to_image',
+  'project_to_conic',
   'CameraParams'
 ]
 

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import cv2
 
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
-from taichi_splatting.misc.renderer2d import render_gaussians
+from taichi_splatting.conic.renderer2d import render_gaussians
 
 import taichi as ti
 

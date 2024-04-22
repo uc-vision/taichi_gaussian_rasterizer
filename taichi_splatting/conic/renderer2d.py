@@ -3,6 +3,7 @@ from dataclasses import replace
 from functools import partial
 import math
 from numbers import Integral
+from typing import Optional
 from beartype.typing import Tuple
 import torch
 import torch.nn.functional as F
@@ -10,8 +11,7 @@ import torch.nn.functional as F
 from taichi_splatting.data_types import Gaussians2D
 from taichi_splatting.misc.encode_depth import encode_depth32
 
-from taichi_splatting.rasterizer import rasterize, RasterConfig
-from taichi_splatting.rasterizer.function import RasterOut
+from taichi_splatting.conic.rasterizer import rasterize, RasterConfig
 
 
 def project_gaussians2d(points: Gaussians2D) -> torch.Tensor:
@@ -25,7 +25,7 @@ def project_gaussians2d(points: Gaussians2D) -> torch.Tensor:
         conic-based representation of the Gaussians2D object.
          
     """
-    alpha = torch.sigmoid(points.alpha_logit)
+    alpha = torch.sigmoid(points.alpha_logit) 
     inv_cov = torch.inverse(point_covariance(points))
 
     conic = torch.stack([inv_cov[..., 0, 0], inv_cov[..., 0, 1], inv_cov[..., 1, 1]], dim=-1)
@@ -58,7 +58,6 @@ def point_covariance(gaussians):
 def split_by_samples(points: Gaussians2D, samples: torch.Tensor, depth_noise:float=1e-2) -> Gaussians2D:
   num_points, n, _ = samples.shape
 
-
   basis = point_basis(points)
   point_samples = (samples.view(-1, 2).unsqueeze(1) @ basis.repeat_interleave(repeats=n, dim=0)).squeeze(1)
 
@@ -68,11 +67,11 @@ def split_by_samples(points: Gaussians2D, samples: torch.Tensor, depth_noise:flo
   
   return replace(gaussians,
     position = gaussians.position + point_samples,
-    depth = gaussians.depth + torch.randn_like(gaussians.depth) * depth_noise,
+    depth = torch.clamp_min(gaussians.depth + torch.randn_like(gaussians.depth) * depth_noise, 1e-6),
     batch_size=(num_points * n, ))
    
 
-def split_gaussians2d(points: Gaussians2D, n:int=2, scaling:float=0.8, depth_noise:float=1e-2) -> Gaussians2D:
+def split_gaussians2d(points: Gaussians2D, n:int=2, scaling:Optional[float]=None, depth_noise:float=1e-2) -> Gaussians2D:
   """
   Toy implementation of the splitting operation used in gaussian-splatting,
   returns a scaled, randomly sampled splitting of the gaussians.
@@ -87,8 +86,10 @@ def split_gaussians2d(points: Gaussians2D, n:int=2, scaling:float=0.8, depth_noi
   """
 
   samples = torch.randn((points.batch_size[0], n, 2), device=points.position.device) 
+  if scaling is None:
+    scaling = 1 / math.sqrt(n)
 
-  factor = math.log(1 / (scaling * n))
+  factor = math.log(math.sqrt(1 / n))
   points = replace(points, 
       log_scaling = points.log_scaling + factor,
       batch_size = points.batch_size)
@@ -96,13 +97,16 @@ def split_gaussians2d(points: Gaussians2D, n:int=2, scaling:float=0.8, depth_noi
   return split_by_samples(points, samples, depth_noise)
 
 
-def uniform_split_gaussians2d(points: Gaussians2D, n:int=3, scaling:float=0.8, noise=0.1, depth_noise:float=1e-2) -> Gaussians2D:
+def uniform_split_gaussians2d(points: Gaussians2D, n:int=2, scaling:Optional[float]=None, noise=0.1, depth_noise:float=1e-2) -> Gaussians2D:
   """ Split along most significant axis """
   axis = F.one_hot(torch.argmax(points.log_scaling, dim=1), num_classes=2)
   values = torch.linspace(-1, 1, n, device=points.position.device)
 
   samples = values.view(1, -1, 1) * axis.view(-1, 1, 2)
   samples += torch.randn_like(samples) * noise
+
+  if scaling is None:
+    scaling = 1 / math.sqrt(n)
 
   factor = math.log(1 / (scaling * n))
   points = replace(points, 
@@ -115,17 +119,18 @@ def resample_inplace(points: Gaussians2D, scale:float=0.625, depth_noise:float=1
     samples = torch.randn_like(points.position)
 
     points.position += (samples.unsqueeze(1) @ point_basis(points)).squeeze(1)
-    points.depth += torch.randn_like(points.depth) * depth_noise
+    points.depth += torch.randn_like(points.depth) * depth_noise           
 
     points.log_scaling += math.log(scale)
     return points
 
 
+
 def render_gaussians(
-      gaussians: Gaussians2D,
+      gaussians: Gaussians2D, 
       image_size: Tuple[Integral, Integral],
       raster_config: RasterConfig = RasterConfig()
-    ) -> RasterOut:
+    ):
   
   gaussians2d = project_gaussians2d(gaussians)
   

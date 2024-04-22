@@ -3,7 +3,7 @@ from functools import partial
 
 import torch
 from taichi_splatting.benchmarks.util import benchmarked
-from taichi_splatting.perspective import projection
+from taichi_splatting.conic.perspective import projection
 # from taichi_splatting import projection
 
 
@@ -42,14 +42,14 @@ def bench_projection(args):
 
     gaussians, camera_params = gaussians.to(args.device), camera_params.to(args.device)
 
-    project_forward = partial(projection.project_to_image, gaussians, indexes, camera_params.T_image_camera, camera_params.T_camera_world)
+    project_forward = partial(projection.project_to_conic, gaussians, indexes, camera_params)
     benchmarked('forward', project_forward, profile=args.profile, iters=args.iters)  
 
 
   gaussians.requires_grad_(True)
 
   def project_backward():
-    points, depth = projection.project_to_image(gaussians, indexes, camera_params.T_image_camera, camera_params.T_camera_world)
+    points, depth = projection.project_to_conic(gaussians, indexes, camera_params)
     loss = points.sum() + depth.sum()
     loss.backward()
 

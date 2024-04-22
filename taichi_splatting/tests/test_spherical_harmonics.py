@@ -3,7 +3,7 @@ import taichi as ti
 from tqdm import tqdm
 from taichi_splatting.tests.util import compare_with_grad
 
-from taichi_splatting.torch_ops import spherical_harmonics as torch_sh
+from taichi_splatting.torch_lib import spherical_harmonics as torch_sh
 from taichi_splatting import spherical_harmonics as taichi_sh
 
 import warnings
