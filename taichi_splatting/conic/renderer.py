@@ -7,7 +7,6 @@ import torch
 
 from taichi_splatting.data_types import Gaussians3D
 from taichi_splatting.misc.depth_variance import compute_depth_variance
-from taichi_splatting.misc.encode_depth import encode_depth
 from taichi_splatting.misc.radius import compute_radius
 from taichi_splatting.spherical_harmonics import  evaluate_sh_at
 
@@ -99,20 +98,18 @@ def render_gaussians(
 
 
 def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor, 
-      features:torch.Tensor, depthvars:torch.Tensor, 
+      features:torch.Tensor, depth:torch.Tensor, 
       camera_params: CameraParams, config:RasterConfig,      
 
-      render_depth:bool = False,  use_depth16:bool = False,
+      render_depth:bool = False, 
       compute_split_heuristics:bool = False, compute_radii:bool = False):
 
-  depth_order = encode_depth(depthvars, 
-    depth_range=(camera_params.near_plane, camera_params.far_plane),
-    use_depth16 = use_depth16)
+
   
   if render_depth:
-    features = torch.cat([depthvars, features], dim=1)
+    features = torch.cat([depth, features], dim=1)
 
-  raster = rasterize(gaussians2d, depth_order, features.contiguous(),
+  raster = rasterize(gaussians2d, depth, features.contiguous(),
     image_size=camera_params.image_size, config=config, compute_split_heuristics=compute_split_heuristics)
 
   depth, depth_var = None, None

@@ -3,12 +3,11 @@ import argparse
 import torch
 import taichi as ti
 from taichi_splatting.benchmarks.util import benchmarked
-from taichi_splatting.misc.encode_depth import encode_depth
 
 from taichi_splatting.conic.rasterizer.function import  RasterConfig
 from taichi_splatting.conic.renderer2d import project_gaussians2d
 from taichi_splatting.tests.random_data import random_2d_gaussians
-from taichi_splatting.mapper import tile_mapper, segmented_tile_mapper, bump_mapper
+from taichi_splatting.mapper import tile_mapper
 
 
 def parse_args(args=None):
@@ -46,15 +45,11 @@ def bench_rasterizer(args):
   
   gaussians2d = project_gaussians2d(gaussians)
 
-  for k, module in dict(bump=bump_mapper,
-                        tile_mapper=tile_mapper, 
-                        segmented=segmented_tile_mapper).items():
+  for k, module in dict(tile_mapper=tile_mapper).items():
 
     def map_to_tiles():
-      encoded_depth = encode_depth(
-        gaussians.depth, depth_range, use_depth16=args.depth16)
       return module.map_to_tiles(gaussians2d, 
-        encoded_depth=encoded_depth, 
+        depth=gaussians.depth, depth_range=depth_range, 
         image_size=args.image_size, 
         config=config)
 

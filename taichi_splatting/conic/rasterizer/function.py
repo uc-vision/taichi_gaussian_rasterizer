@@ -133,7 +133,7 @@ def rasterize_with_tiles(gaussians2d: torch.Tensor, features: torch.Tensor,
   return RasterOut(image, image_weight, point_split_heuristics)
 
 
-def rasterize(gaussians2d:torch.Tensor, encoded_depths:torch.Tensor, 
+def rasterize(gaussians2d:torch.Tensor, depth:torch.Tensor, depth_range:Tuple[float, float],
                           features:torch.Tensor, image_size:Tuple[Integral, Integral],
                           config:RasterConfig, compute_split_heuristics:bool=False) -> RasterOut:
     
@@ -143,7 +143,9 @@ def rasterize(gaussians2d:torch.Tensor, encoded_depths:torch.Tensor,
 
   Parameters:
       gaussians2d: (N, 6)  packed gaussians, N is the number of gaussians
-      encoded_depths: (N )  encoded depths, N is the number of gaussians
+      depth: (N )  encoded depths, N is the number of gaussians
+      depth_range: (2, ) tuple of floats, (near, far)
+
       features: (N, F)   features, F is the number of features
 
       image_size: (2, ) tuple of ints, (width, height)
@@ -157,11 +159,11 @@ def rasterize(gaussians2d:torch.Tensor, encoded_depths:torch.Tensor,
         point_split_heuristics: (N, ) torch tensor, where N is the number of gaussians  
   """
 
-  assert gaussians2d.shape[0] == encoded_depths.shape[0] == features.shape[0], \
-    f"Size mismatch: got {gaussians2d.shape}, {encoded_depths.shape}, {features.shape}"
+  assert gaussians2d.shape[0] == depth.shape[0] == features.shape[0], \
+    f"Size mismatch: got {gaussians2d.shape}, {depth.shape}, {features.shape}"
 
   # render with padding to tile_size, later crop back to original size
-  overlap_to_point, tile_overlap_ranges = map_to_tiles(gaussians2d, encoded_depths, 
+  overlap_to_point, tile_overlap_ranges = map_to_tiles(gaussians2d, depth, depth_range, 
     image_size=image_size, config=config)
   
   return rasterize_with_tiles(gaussians2d, features, 

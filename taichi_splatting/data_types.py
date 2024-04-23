@@ -22,7 +22,8 @@ class RasterConfig:
   alpha_threshold: float = 1. / 255.
   saturate_threshold: float = 0.9999
 
-  beta: float = 2.0 # multiplier on gaussian exponent e^-(d ^ (2 * beta))
+  beta: float = 1.0 # multiplier on gaussian exponent e^-(d ^ (2 * beta))
+  depth16: bool = False
 
 
 

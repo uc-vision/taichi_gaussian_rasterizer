@@ -39,7 +39,7 @@ def project_to_conic_function(torch_dtype=torch.float32):
     T_camera_world: ti.types.ndarray(ndim=2),  # (4, 4)
     
     points: ti.types.ndarray(lib.GaussianConic.vec, ndim=1),  # (N, 6)
-    depth_var: ti.types.ndarray(lib.vec3, ndim=1),  # (N, 3)
+    depth: ti.types.ndarray(lib.vec3, ndim=1),  # (N, 3)
     blur_cov:ti.f32
   ):
 
@@ -63,7 +63,7 @@ def project_to_conic_function(torch_dtype=torch.float32):
       uv_cov += lib.vec3([blur_cov, 0, blur_cov]) 
       uv_conic = lib.inverse_cov(uv_cov)
 
-      depth_var[i] = lib.vec3(point_in_camera.z, cov_in_camera[2, 2], point_in_camera.z ** 2)
+      depth[i] = point_in_camera.z
       points[i] = lib.GaussianConic.to_vec(
           uv=uv.xy,
           uv_conic=uv_conic,
@@ -83,7 +83,7 @@ def project_to_conic_function(torch_dtype=torch.float32):
       n = indexes.shape[0]
 
       points = torch.empty((n, lib.GaussianConic.vec.n), dtype=dtype, device=device)
-      depth_vars = torch.empty((n, 3), dtype=dtype, device=device)
+      depth = torch.empty((n, 1), dtype=dtype, device=device)
 
       gaussian_tensors = (position, log_scaling, rotation, alpha_logit)
 
@@ -91,7 +91,7 @@ def project_to_conic_function(torch_dtype=torch.float32):
       project_conic_kernel(*gaussian_tensors, 
             indexes,
             T_image_camera, T_camera_world,
-            points, depth_vars,
+            points, depth,
             blur_cov)
       
       ctx.indexes = indexes
@@ -99,25 +99,25 @@ def project_to_conic_function(torch_dtype=torch.float32):
       
       ctx.mark_non_differentiable(indexes)
       ctx.save_for_backward(*gaussian_tensors,
-         T_image_camera, T_camera_world, points, depth_vars)
+         T_image_camera, T_camera_world, points, depth)
       
-      return points, depth_vars
+      return points, depth
 
     @staticmethod
-    def backward(ctx, dpoints, ddepth_vars):
+    def backward(ctx, dpoints, ddepth):
 
       gaussian_tensors = ctx.saved_tensors[:4]
-      T_image_camera, T_camera_world, points, depth_vars = ctx.saved_tensors[4:]
+      T_image_camera, T_camera_world, points, depth = ctx.saved_tensors[4:]
 
-      with restore_grad(*gaussian_tensors,  T_image_camera, T_camera_world, points, depth_vars):
+      with restore_grad(*gaussian_tensors,  T_image_camera, T_camera_world, points, depth):
         points.grad = dpoints.contiguous()
-        depth_vars.grad = ddepth_vars.contiguous()
+        depth.grad = ddepth.contiguous()
         
         project_conic_kernel.grad(
           *gaussian_tensors,  
           ctx.indexes,
           T_image_camera, T_camera_world, 
-          points, depth_vars,
+          points, depth,
           ctx.blur_cov)
 
         return (*[tensor.grad for tensor in gaussian_tensors], 
@@ -160,7 +160,7 @@ def project_to_conic(gaussians:Gaussians3D, indexes:torch.Tensor, camera_params:
 
   Returns:
     points:    torch.Tensor (N, 6)  - packed 2D gaussians in image space
-    depth_var: torch.Tensor (N, 3)  - depth, depth variance and depth^2 of gaussians
+    depth: torch.Tensor (N, 1)  - depth of each point in camera space
   """
 
   return apply(

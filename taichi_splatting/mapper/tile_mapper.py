@@ -22,34 +22,41 @@ def pad_to_tile(image_size: Tuple[Integral, Integral], tile_size: int):
   return tuple(pad(x) for x in image_size)
 
 
+@ti.func
+def norm_depth(depth: ti.f32, near:ti.f32, far:ti.f32) -> ti.f32:
+  ndc_depth =  (far + near - (2.0 * near * far) / depth) / (far - near)
+  return ti.math.clamp((ndc_depth + 1.) / 2., 0.0, 1.0)
+
+
+
 
 @cache
-def tile_mapper(config:RasterConfig, depth_type=torch.int32):
+def tile_mapper(config:RasterConfig):
 
-  if depth_type == torch.int32:
+  if config.depth16:
     max_tile = 65535
     key_type = torch.int64
     end_sort_bit = 48
 
     @ti.func
     def make_sort_key(depth, tile_id):
-        assert depth >= 0, f"depth {depth} cannot be negative for int 32 key!"
 
-        return ti.cast(depth, ti.i64) | (ti.cast(tile_id, ti.i64) << 32)
+        depth_32 = ti.bit_cast(depth, ti.i32)
+        return ti.cast(depth_32, ti.i64) | (ti.cast(tile_id, ti.i64) << 32)
   
     @ti.func
     def get_tile_id(key):
       return ti.cast(key >> 32, ti.i32)
 
 
-  elif depth_type == torch.int16:
+  else:
     max_tile = 65535
     key_type = torch.int32
     end_sort_bit = 32
 
     @ti.func
-    def make_sort_key(depth:ti.i16, tile_id:ti.i32):
-        depthu = ti.cast(depth, ti.i32) + 32767
+    def make_sort_key(depth:ti.f32, tile_id:ti.i32):
+        depthu = ti.cast(depth, ti.i32)
 
         key_u32 = ti.cast(depthu, ti.u32) | (ti.cast(tile_id, ti.u32) << 16)
         return ti.bit_cast(key_u32, ti.i32)
@@ -59,8 +66,6 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
       key_u32 = ti.bit_cast(key, ti.u32)
       return ti.cast(key_u32 >> 16, ti.i32)
 
-  else:
-    raise ValueError(f"depth_type {depth_type} not supported")
 
 
   x = np.linspace(0, 4, 1000)
@@ -119,7 +124,9 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
 
   @ti.kernel
   def generate_sort_keys_kernel(
-      depths: ti.types.ndarray(torch_taichi[depth_type], ndim=1),  # (M)
+      depths: ti.types.ndarray(ti.f32, ndim=1),  # (M)
+      near:ti.f32, far:ti.f32,
+
       gaussians : ti.types.ndarray(GaussianConic.vec, ndim=1),  # (M)
       cumulative_overlap_counts: ti.types.ndarray(ti.i32, ndim=1),  # (M)
       # (K), K = sum(num_overlap_tiles)
@@ -136,7 +143,7 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
     for idx in range(cumulative_overlap_counts.shape[0]):
       query = grid_query(gaussians[idx], image_size)
       key_idx = cumulative_overlap_counts[idx]
-      depth = depths[idx]
+      depth = norm_depth(depths[idx], near, far)
 
 
       for tile_uv in ti.grouped(ti.ndrange(*query.tile_span)):
@@ -152,12 +159,14 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
           key_idx += 1
 
 
-  def sort_tile_depths(depths:torch.Tensor, tile_overlap_ranges:torch.Tensor, cum_overlap_counts:torch.Tensor, total_overlap:int, image_size):
+  def sort_tile_depths(depths:torch.Tensor, depth_range:tuple[float, float], 
+                       tile_overlap_ranges:torch.Tensor, cum_overlap_counts:torch.Tensor, total_overlap:int, image_size):
 
     overlap_key = torch.empty((total_overlap, ), dtype=key_type, device=cum_overlap_counts.device)
     overlap_to_point = torch.empty((total_overlap, ), dtype=torch.int32, device=cum_overlap_counts.device)
 
-    generate_sort_keys_kernel(depths.contiguous(), tile_overlap_ranges, cum_overlap_counts, image_size,
+    near, far  = depth_range
+    generate_sort_keys_kernel(depths.contiguous(), near, far, tile_overlap_ranges, cum_overlap_counts, image_size,
                               overlap_key, overlap_to_point)
 
     overlap_key, overlap_to_point  = cuda_lib.radix_sort_pairs(overlap_key, overlap_to_point, end_bit=end_sort_bit, unsigned=True)
@@ -167,12 +176,13 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
   def generate_tile_overlaps(gaussians, image_size):
     overlap_counts = torch.empty( (gaussians.shape[0], ), dtype=torch.int32, device=gaussians.device)
 
-    tile_overlaps_kernel(gaussians, ivec2(image_size), overlap_counts)
-
+    tile_overlaps_kernel(gaussians, ivec2(image_size), overlap_counts)    
+          
     cum_overlap_counts, total_overlap = cuda_lib.full_cumsum(overlap_counts)
     return cum_overlap_counts[:-1], total_overlap
 
-  def f(gaussians : torch.Tensor, depths:torch.Tensor, image_size:Tuple[Integral, Integral]):
+  def f(gaussians : torch.Tensor, depths:torch.Tensor, 
+        depth_range:tuple[float, float], image_size:Tuple[Integral, Integral]):
 
     image_size = pad_to_tile(image_size, tile_size)
     tile_shape = (image_size[1] // tile_size, image_size[0] // tile_size)
@@ -192,7 +202,7 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
 
       if total_overlap > 0:
         overlap_key, overlap_to_point = sort_tile_depths(
-          depths, gaussians, cum_overlap_counts, total_overlap, image_size)
+          depths.squeeze(1), depth_range, gaussians, cum_overlap_counts, total_overlap, image_size)
         
         find_ranges_kernel(overlap_key, tile_ranges.view(-1, 2))
       else:
@@ -204,7 +214,11 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
 
 
 @beartype
-def map_to_tiles(gaussians : torch.Tensor, encoded_depth:torch.Tensor, 
+def map_to_tiles(gaussians : torch.Tensor, 
+                 depth:torch.Tensor, 
+                 depth_range:Tuple[float, float],
+
+
                  image_size:Tuple[Integral, Integral],
                  config:RasterConfig
                  ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -221,5 +235,5 @@ def map_to_tiles(gaussians : torch.Tensor, encoded_depth:torch.Tensor,
     """
 
   
-  mapper = tile_mapper(config, depth_type=encoded_depth.dtype)
-  return mapper(gaussians, encoded_depth, image_size)
+  mapper = tile_mapper(config)
+  return mapper(gaussians, depth, depth_range, image_size)
