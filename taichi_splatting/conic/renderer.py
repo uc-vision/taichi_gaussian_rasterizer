@@ -6,7 +6,6 @@ from beartype.typing import Optional, Tuple
 import torch
 
 from taichi_splatting.data_types import Gaussians3D
-from taichi_splatting.misc.depth_variance import compute_depth_variance
 from taichi_splatting.misc.radius import compute_radius
 from taichi_splatting.spherical_harmonics import  evaluate_sh_at
 
@@ -106,17 +105,22 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
 
   
   if render_depth:
-    features = torch.cat([depth, features], dim=1)
+    depth = depth.unsqueeze(1)
+    features = torch.cat([depth, depth.pow(2), features], dim=1)
 
-  raster = rasterize(gaussians2d, depth, features.contiguous(),
+  raster = rasterize(gaussians2d, depth, depth_range=(camera_params.near_plane, camera_params.far_plane), features=features.contiguous(),
     image_size=camera_params.image_size, config=config, compute_split_heuristics=compute_split_heuristics)
 
   depth, depth_var = None, None
   feature_image = raster.image
 
   if render_depth:
-    depth, depth_var = compute_depth_variance(raster.image, raster.image_weight)
-    feature_image = feature_image[..., 3:]
+    depth_feat = raster.image[..., :2] / (raster.image_weight.unsqueeze(-1) + 1e-6)
+
+    depth, depth_sq = depth_feat.unbind(dim=-1)
+    depth_var = (depth_sq  - depth.pow(2)) 
+
+    feature_image = feature_image[..., 2:]
 
   heuristics = raster.point_split_heuristics if compute_split_heuristics else None
   radii = compute_radius(gaussians2d) if compute_radii else None

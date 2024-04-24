@@ -71,7 +71,7 @@ def tile_mapper(config:RasterConfig):
   x = np.linspace(0, 4, 1000)
   y = np.exp(-(0.5 * x**2) ** config.beta)
 
-  gaussian_scale = x[np.argmax(y < 0.5 * config.alpha_threshold)]
+  gaussian_scale =  x[np.argmax(y < 0.5 * config.alpha_threshold)]
 
   tile_size = config.tile_size
   grid_ops = make_grid_query(
@@ -225,7 +225,9 @@ def map_to_tiles(gaussians : torch.Tensor,
   """ maps guassians to tiles, sorted by depth (front to back):
     Parameters:
      gaussians: (N, 6) torch.Tensor of packed gaussians, N is the number of gaussians
-     encoded_depths: (N)  torch.Tensor of encoded depths (int32)
+     depths: (N)  torch.Tensor of encoded depths (float32)
+     depth_range: (near, far) tuple of floats
+
      image_size: (2, ) tuple of ints, (width, height)
      tile_config: configuration for tile mapper (tile_size etc.)
 
