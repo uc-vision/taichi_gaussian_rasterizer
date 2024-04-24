@@ -71,6 +71,7 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
 
 
   T_image_world = expand_proj(T_image_camera) @  T_camera_world
+
   R = quat_to_mat(rotation)
 
   scale = log_scaling.exp()

@@ -57,7 +57,6 @@ def render_gaussians(
   config:RasterConfig = RasterConfig(),      
   use_sh:bool = False,      
   render_depth:bool = False, 
-  use_depth16:bool = False,
 
   compute_split_heuristics:bool = False,
   compute_radii:bool = False
@@ -91,9 +90,9 @@ def render_gaussians(
     features = gaussians.feature[indexes]
     assert len(features.shape) == 2, f"Features must be (N, C) if use_sh=False, got {features.shape}"
 
-  gaussians2d, depthvars = project_to_conic(gaussians, indexes, camera_params)
-  return render_projected(indexes, gaussians2d, features, depthvars, camera_params, config, 
-                   render_depth=render_depth, use_depth16=use_depth16,
+  gaussians2d, depth = project_to_conic(gaussians, indexes, camera_params)
+  return render_projected(indexes, gaussians2d, features, depth, camera_params, config, 
+                   render_depth=render_depth, 
                    compute_split_heuristics=compute_split_heuristics, compute_radii=compute_radii)
 
 

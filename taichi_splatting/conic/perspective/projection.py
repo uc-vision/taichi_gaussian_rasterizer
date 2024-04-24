@@ -39,7 +39,7 @@ def project_to_conic_function(torch_dtype=torch.float32):
     T_camera_world: ti.types.ndarray(ndim=2),  # (4, 4)
     
     points: ti.types.ndarray(lib.GaussianConic.vec, ndim=1),  # (N, 6)
-    depth: ti.types.ndarray(lib.vec3, ndim=1),  # (N, 3)
+    depth: ti.types.ndarray(ti.f32, ndim=1),  # (N, 3)
     blur_cov:ti.f32
   ):
 
@@ -83,7 +83,7 @@ def project_to_conic_function(torch_dtype=torch.float32):
       n = indexes.shape[0]
 
       points = torch.empty((n, lib.GaussianConic.vec.n), dtype=dtype, device=device)
-      depth = torch.empty((n, 1), dtype=dtype, device=device)
+      depth = torch.empty(n, dtype=dtype, device=device)
 
       gaussian_tensors = (position, log_scaling, rotation, alpha_logit)
 
@@ -160,7 +160,7 @@ def project_to_conic(gaussians:Gaussians3D, indexes:torch.Tensor, camera_params:
 
   Returns:
     points:    torch.Tensor (N, 6)  - packed 2D gaussians in image space
-    depth: torch.Tensor (N, 1)  - depth of each point in camera space
+    depth: torch.Tensor (N,)  - depth of each point in camera space
   """
 
   return apply(
