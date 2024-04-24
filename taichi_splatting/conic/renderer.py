@@ -91,8 +91,8 @@ def render_gaussians(
     features = gaussians.feature[indexes]
     assert len(features.shape) == 2, f"Features must be (N, C) if use_sh=False, got {features.shape}"
 
-  gaussians2d, depthvars = project_to_conic(gaussians, indexes, camera_params)
-  return render_projected(indexes, gaussians2d, features, depthvars, camera_params, config, 
+  gaussians2d, depth = project_to_conic(gaussians, indexes, camera_params)
+  return render_projected(indexes, gaussians2d, features, depth, camera_params, config, 
                    render_depth=render_depth, use_depth16=use_depth16,
                    compute_split_heuristics=compute_split_heuristics, compute_radii=compute_radii)
 
@@ -107,7 +107,7 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
 
   
   if render_depth:
-    features = torch.cat([depth, features], dim=1)
+    features = torch.cat([depth, depth.pow(2), features], dim=1)
 
   raster = rasterize(gaussians2d, depth, features.contiguous(),
     image_size=camera_params.image_size, config=config, compute_split_heuristics=compute_split_heuristics)
@@ -116,8 +116,12 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
   feature_image = raster.image
 
   if render_depth:
-    depth, depth_var = compute_depth_variance(raster.image, raster.image_weight)
-    feature_image = feature_image[..., 3:]
+    depth_feat = raster.image[..., :2] / (raster.image_weight + 1e-6)
+
+    depth, depth_sq = depth_feat.unbind(dim=-1)
+    depth_var = (depth_sq  - depth.pow(2)) 
+
+    feature_image = feature_image[..., 2:]
 
   heuristics = raster.point_split_heuristics if compute_split_heuristics else None
   radii = compute_radius(gaussians2d) if compute_radii else None
