@@ -32,8 +32,9 @@ def norm_depth(depth: ti.f32, near:ti.f32, far:ti.f32) -> ti.f32:
 
 @cache
 def tile_mapper(config:RasterConfig):
+  
 
-  if config.depth16:
+  if not config.depth16:
     max_tile = 65535
     key_type = torch.int64
     end_sort_bit = 48
@@ -56,9 +57,7 @@ def tile_mapper(config:RasterConfig):
 
     @ti.func
     def make_sort_key(depth:ti.f32, tile_id:ti.i32):
-        depthu = ti.cast(depth, ti.i32)
-
-        key_u32 = ti.cast(depthu, ti.u32) | (ti.cast(tile_id, ti.u32) << 16)
+        key_u32 = ti.cast(depth * 65535, ti.u32) | (ti.cast(tile_id, ti.u32) << 16)
         return ti.bit_cast(key_u32, ti.i32)
   
     @ti.func
@@ -71,7 +70,7 @@ def tile_mapper(config:RasterConfig):
   x = np.linspace(0, 4, 1000)
   y = np.exp(-(0.5 * x**2) ** config.beta)
 
-  gaussian_scale =  x[np.argmax(y < 0.5 * config.alpha_threshold)]
+  gaussian_scale =   x[np.argmax(y < 0.5 * config.alpha_threshold)]
 
   tile_size = config.tile_size
   grid_ops = make_grid_query(
@@ -143,8 +142,9 @@ def tile_mapper(config:RasterConfig):
     for idx in range(cumulative_overlap_counts.shape[0]):
       query = grid_query(gaussians[idx], image_size)
       key_idx = cumulative_overlap_counts[idx]
+      
       depth = norm_depth(depths[idx], near, far)
-
+      # depth = depths[idx]
 
       for tile_uv in ti.grouped(ti.ndrange(*query.tile_span)):
         if query.test_tile(tile_uv):
