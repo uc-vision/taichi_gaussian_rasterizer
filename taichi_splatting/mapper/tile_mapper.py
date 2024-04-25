@@ -3,17 +3,14 @@ import math
 from numbers import Integral
 from beartype.typing import Tuple
 from beartype import beartype
-import numpy as np
 import taichi as ti
 from taichi.math import ivec2
 import torch
 from taichi_splatting import cuda_lib
 from taichi_splatting.data_types import RasterConfig
 
-from taichi_splatting.taichi_lib.f32 import (GaussianConic)
 from taichi_splatting.taichi_lib.conversions import torch_taichi
-
-from taichi_splatting.taichi_lib.grid_query import make_grid_query
+from taichi_splatting.taichi_lib.grid_query import GridQuery, conic_grid_query
 
 def pad_to_tile(image_size: Tuple[Integral, Integral], tile_size: int):
   def pad(x):
@@ -27,12 +24,13 @@ def norm_depth(depth: ti.f32, near:ti.f32, far:ti.f32) -> ti.f32:
   ndc_depth =  (far + near - (2.0 * near * far) / depth) / (far - near)
   return ti.math.clamp((ndc_depth + 1.) / 2., 0.0, 1.0)
 
-
-
-
 @cache
 def tile_mapper(config:RasterConfig):
-  
+  query_type = conic_grid_query(config)
+
+  primitive_type = query_type.primitive
+  make_query = query_type.make_query  
+  tile_size = config.tile_size
 
   if not config.depth16:
     max_tile = 65535
@@ -67,23 +65,9 @@ def tile_mapper(config:RasterConfig):
 
 
 
-  x = np.linspace(0, 4, 1000)
-  y = np.exp(-(0.5 * x**2) ** config.beta)
-
-  gaussian_scale =   x[np.argmax(y < 0.5 * config.alpha_threshold)]
-
-  tile_size = config.tile_size
-  grid_ops = make_grid_query(
-    tile_size=tile_size, 
-    gaussian_scale=gaussian_scale, 
-    tight_culling=config.tight_culling)
-  
-  grid_query = grid_ops.grid_query
-  
-
   @ti.kernel
   def tile_overlaps_kernel(
-      gaussians: ti.types.ndarray(GaussianConic.vec, ndim=1),  
+      gaussians: ti.types.ndarray(primitive_type.vec, ndim=1),  
       image_size: ivec2,
 
       # outputs
@@ -91,7 +75,7 @@ def tile_mapper(config:RasterConfig):
   ):
       ti.loop_config(block_dim=128)
       for idx in range(gaussians.shape[0]):
-          query = grid_query(gaussians[idx], image_size)
+          query = make_query(gaussians[idx], image_size)
           counts[idx] =  query.count_tiles()
 
 
@@ -126,7 +110,7 @@ def tile_mapper(config:RasterConfig):
       depths: ti.types.ndarray(ti.f32, ndim=1),  # (M)
       near:ti.f32, far:ti.f32,
 
-      gaussians : ti.types.ndarray(GaussianConic.vec, ndim=1),  # (M)
+      gaussians : ti.types.ndarray(primitive_type.vec, ndim=1),  # (M)
       cumulative_overlap_counts: ti.types.ndarray(ti.i32, ndim=1),  # (M)
       # (K), K = sum(num_overlap_tiles)
       image_size: ivec2,
@@ -140,7 +124,7 @@ def tile_mapper(config:RasterConfig):
 
     ti.loop_config(block_dim=128)
     for idx in range(cumulative_overlap_counts.shape[0]):
-      query = grid_query(gaussians[idx], image_size)
+      query = make_query(gaussians[idx], image_size)
       key_idx = cumulative_overlap_counts[idx]
       
       depth = norm_depth(depths[idx], near, far)
@@ -218,9 +202,9 @@ def map_to_tiles(gaussians : torch.Tensor,
                  depth:torch.Tensor, 
                  depth_range:Tuple[float, float],
 
-
                  image_size:Tuple[Integral, Integral],
                  config:RasterConfig
+                 
                  ) -> Tuple[torch.Tensor, torch.Tensor]:
   """ maps guassians to tiles, sorted by depth (front to back):
     Parameters:
@@ -236,6 +220,5 @@ def map_to_tiles(gaussians : torch.Tensor,
      tile_ranges: (M, 2) torch tensor, where M is the number of tiles, maps tile index to range of overlap indices
     """
 
-  
   mapper = tile_mapper(config)
   return mapper(gaussians, depth, depth_range, image_size)

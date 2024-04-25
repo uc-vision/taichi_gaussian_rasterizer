@@ -68,7 +68,7 @@ def split_by_samples(points: Gaussians2D, samples: torch.Tensor, depth_noise:flo
   
   return replace(gaussians,
     position = gaussians.position + point_samples,
-    depth = gaussians.depth + torch.randn_like(gaussians.depth) * depth_noise,
+    depth = gaussians.z_depth + torch.randn_like(gaussians.z_depth) * depth_noise,
     batch_size=(num_points * n, ))
    
 
@@ -115,7 +115,7 @@ def resample_inplace(points: Gaussians2D, scale:float=0.625, depth_noise:float=1
     samples = torch.randn_like(points.position)
 
     points.position += (samples.unsqueeze(1) @ point_basis(points)).squeeze(1)
-    points.depth += torch.randn_like(points.depth) * depth_noise
+    points.z_depth += torch.randn_like(points.z_depth) * depth_noise
 
     points.log_scaling += math.log(scale)
     return points
@@ -130,7 +130,7 @@ def render_gaussians(
   gaussians2d = project_gaussians2d(gaussians)
   
   raster = rasterize(gaussians2d=gaussians2d, 
-    encoded_depths= encode_depth32(gaussians.depth),
+    encoded_depths= encode_depth32(gaussians.z_depth),
     features=gaussians.feature, 
     image_size=image_size, 
     config=raster_config)

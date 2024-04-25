@@ -1,7 +1,6 @@
 
 from functools import cache
 from taichi_splatting.mapper.tile_mapper import map_to_tiles
-from taichi_splatting.taichi_lib.concurrent import WARP_SIZE
 
 
 from .forward import RasterConfig, forward_kernel

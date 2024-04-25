@@ -75,10 +75,9 @@ def train_epoch(opt, gaussians, ref_image, epoch_size=100, config:RasterConfig =
       opt.zero_grad()
 
       gaussians2d = project_gaussians2d(gaussians)  
-      depths = encode_depth32(gaussians.depth)
 
       raster = rasterize(gaussians2d=gaussians2d, 
-        encoded_depths=depths,
+        depth=gaussians.z_depth,
         features=gaussians.feature, 
         image_size=(w, h), 
         config=config,
@@ -178,9 +177,8 @@ def main():
     with torch.no_grad():
 
       if cmd_args.show:
-        gaussians2d = project_gaussians2d(params)
-        depths = encode_depth32(params.depth)
-        raster =  rasterize(gaussians2d, depths, gradient.contiguous().unsqueeze(-1), image_size=(w, h), config=config, compute_split_heuristics=True)
+        conics = project_gaussians2d(params)
+        raster =  rasterize(conics, params.z_depth, gradient.contiguous().unsqueeze(-1), image_size=(w, h), config=config, compute_split_heuristics=True)
 
         err = torch.abs(ref_image - image)
         

@@ -79,7 +79,7 @@ class Gaussians3D():
 @tensorclass
 class Gaussians2D():
   position     : torch.Tensor # 2  - xy
-  depth        : torch.Tensor # 1  - for sorting
+  z_depth        : torch.Tensor # 1  - for sorting
   log_scaling   : torch.Tensor # 2  - scale = exp(log_scalining) 
   rotation      : torch.Tensor # 2  - unit length imaginary number
   alpha_logit   : torch.Tensor # 1  - alpha = sigmoid(alpha_logit)
