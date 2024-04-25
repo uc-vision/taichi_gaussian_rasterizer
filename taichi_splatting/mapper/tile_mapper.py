@@ -10,7 +10,7 @@ from taichi_splatting import cuda_lib
 from taichi_splatting.data_types import RasterConfig
 
 from taichi_splatting.taichi_lib.conversions import torch_taichi
-from taichi_splatting.taichi_lib.grid_query import GridQuery, conic_grid_query
+from taichi_splatting.taichi_lib.grid_query import conic_grid_query
 
 def pad_to_tile(image_size: Tuple[Integral, Integral], tile_size: int):
   def pad(x):

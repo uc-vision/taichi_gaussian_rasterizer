@@ -32,6 +32,15 @@ def make_library(dtype=ti.f32):
       uv_conic  : vec3
       alpha   : dtype
 
+  @ti.dataclass
+  class OBBox:
+     uv   : vec2
+     axes : mat2
+
+
+  @ti.dataclass
+  class Quad:
+    points : mat4x2
 
 
   @ti.dataclass
