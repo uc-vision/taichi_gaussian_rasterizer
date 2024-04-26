@@ -186,7 +186,7 @@ def tile_mapper(config:RasterConfig):
 
       if total_overlap > 0:
         overlap_key, overlap_to_point = sort_tile_depths(
-          depths.squeeze(1), depth_range, gaussians, cum_overlap_counts, total_overlap, image_size)
+          depths, depth_range, gaussians, cum_overlap_counts, total_overlap, image_size)
         
         find_ranges_kernel(overlap_key, tile_ranges.view(-1, 2))
       else:

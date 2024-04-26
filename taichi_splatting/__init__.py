@@ -1,4 +1,4 @@
-from .data_types import RasterConfig, Gaussians3D, Gaussians2D
+from .data_types import RasterConfig, Gaussians3D, Gaussians2D, Rendering
 from . import conic
 from .camera_params import CameraParams
 
@@ -9,6 +9,8 @@ __all__ = [
   'Gaussians2D'
   'Gaussians3D',
   'RasterConfig',
+  'CameraParams',
+  
 
   'conic'
 
