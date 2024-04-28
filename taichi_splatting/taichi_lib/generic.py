@@ -20,6 +20,10 @@ def make_library(dtype=ti.f32):
   mat4 = ti.types.matrix(4, 4, dtype)
 
   mat4x2 = ti.types.matrix(4, 2, dtype=dtype)
+  mat4x3 = ti.types.matrix(4, 3, dtype=dtype)
+  
+  mat2x3 = ti.types.matrix(2, 3, dtype=dtype)
+  
 
   #
   # Gaussian datatypes
@@ -33,15 +37,87 @@ def make_library(dtype=ti.f32):
       alpha   : dtype
 
   @ti.dataclass
-  class OBBox:
-     uv   : vec2
-     axes : mat2
+  class GaussianSurfel:
+    pos   : vec3
+    axes  : mat2x3
+    alpha : dtype
 
+
+    @ti.func
+    def homography(self) -> mat4:
+      return ti.Matrix.cols([
+          vec4(self.axes[:, 0], 0), 
+          vec4(self.axes[:, 1], 0),
+          vec4(0),
+          vec4(self.pos, 1)])
+
+  @ti.dataclass
+  class OBBox:
+    axes : mat2
+    uv : vec2
+
+    @ti.func
+    def contains_point(self, p:vec2):
+      box_t_world = ti.math.inverse(self.axis)
+      local = box_t_world @ (p - self.uv)
+      return (local >= -1.0).all() and (local <= 1.0).all()
+
+      
+
+  @ti.dataclass
+  class AABBox:
+    lower : vec2
+    upper : vec2
+
+    @ti.func
+    def corners(self) -> mat4x2:
+      return ti.Matrix.rows([
+        self.lower,
+        vec2(self.lower.x, self.upper.y),
+        self.upper,
+        vec2(self.upper.x, self.lower.y)
+      ])
+
+    
+  @ti.func
+  def plane2d(p1:vec2, p2:vec2) -> vec3:
+    n = ti.math.normalize(p2 - p1)
+    return vec3(n.x, n.y, -n.dot(p1))
 
   @ti.dataclass
   class Quad:
     points : mat4x2
 
+    @ti.func
+    def contains_point(self, p:vec2):
+      contains = False
+      for i in range(4):
+        p1 = self.points[i]
+        p2 = self.points[(i + 1) % 4]
+        t = (p2 - p1).cross(p - p1)
+        contains = contains and (t > 0)
+      return contains
+    
+    @ti.func
+    def planes(self) -> ti.mat4x3:
+      planes = ti.Matrix.rows(
+         [plane2d(self.points[i], self.points[(i + 1) % 4]) 
+            for i in ti.static(range(4))])
+      return planes
+    
+
+
+    # @ti.func
+    # def separates_aabb(self, aabb:AABBox):
+    #   corners = aabb.corners()
+
+    #   for i in range(4):
+    #     p1 = self.points[i] 
+    #     p2 = self.points[(i + 1) % 4]
+
+
+
+        
 
   @ti.dataclass
   class Gaussian3D:
@@ -62,23 +138,45 @@ def make_library(dtype=ti.f32):
   vec_g2d = ti.types.vector(struct_size(GaussianConic), dtype=dtype)
   vec_g3d = ti.types.vector(struct_size(Gaussian3D), dtype=dtype)
 
+  vec_surfel = ti.types.vector(struct_size(GaussianSurfel), dtype=dtype)
+
+  vec_aabb = ti.types.vector(struct_size(AABBox), dtype=dtype)
+  vec_quad = ti.types.vector(struct_size(Quad), dtype=dtype)
+  vec_obb = ti.types.vector(struct_size(OBBox), dtype=dtype)
+
+
+
 
   @ti.func
   def to_vec_g2d(uv:vec2, uv_conic:vec3, alpha:dtype) -> vec_g2d:
     return vec_g2d(*uv, *uv_conic, alpha)
 
+  
   @ti.func
-  def to_vec_g3d(position:vec3, log_scaling:vec3, rotation:vec4, alpha_logit:dtype) -> vec_g3d:
-    return vec_g3d(*position, *log_scaling, *rotation, alpha_logit)
+  def to_vec_surfel(pos:vec3, axes:mat2x3, alpha:dtype) -> vec_surfel:
+    return vec_surfel(*pos, *axes, alpha)
+  
+  @ti.func
+  def to_vec_aabb(lower:vec2, upper:vec2) -> vec_aabb:
+    return vec_aabb(*lower, *upper)
+  
+  @ti.func
+  def to_vec_quad(points:mat4x2) -> vec_quad:
+    return vec_quad(*points)
+  
+  @ti.func
+  def to_vec_obb(axes:mat2, uv:vec2) -> vec_obb:
+    return vec_obb(*axes, *uv)
 
 
-  @ti.func
-  def unpack_vec_g3d(vec:vec_g3d) -> Gaussian3D:
-    return vec[0:3], vec[3:6], vec[6:10], vec[10]
 
   @ti.func
-  def unpack_vec_g2d(vec:vec_g2d) -> GaussianConic:
+  def unpack_vec_g2d(vec:vec_g2d):
     return vec[0:2], vec[2:5], vec[5]
+  
+  @ti.func 
+  def unpack_vec_surfel(vec:vec_surfel):
+    return vec[0:3], vec[3:9], vec[9]
 
   @ti.func
   def get_position_g3d(vec:vec_g3d) -> vec3:
@@ -98,27 +196,20 @@ def make_library(dtype=ti.f32):
     conic = get_conic_g2d(vec)
     return inverse_cov(conic)
 
-  @ti.func
-  def from_vec_g3d(vec:vec_g3d) -> Gaussian3D:
-    return Gaussian3D(vec[0:3], vec[3:6], vec[6:10], vec[10])
+
 
   @ti.func
   def from_vec_g2d(vec:vec_g2d) -> GaussianConic:
     return GaussianConic(vec[0:2], vec[2:5], vec[5])
 
+  @ti.func
+  def from_vec_surfel(vec:vec_surfel) -> GaussianSurfel:
+    return GaussianSurfel(vec[0:3], vec[3:9], vec[9])
 
   @ti.func
-  def unpack_activate_g3d(vec:vec_g3d):
-    position, log_scaling, rotation, alpha_logit = unpack_vec_g3d(vec)
-    return position, ti.exp(log_scaling), ti.math.normalize(rotation), sigmoid(alpha_logit)
-  
+  def from_vec_quad(vec:vec_quad) -> Quad:
+    return Quad(mat4x2(vec))
 
-
-
-  @ti.func
-  def bounding_sphere(vec:vec_g3d, gaussian_scale: ti.template()):
-    position, log_scaling = vec[0:3], vec[3:6]
-    return position, ti.exp(log_scaling).max() * gaussian_scale
 
   # Taichi structs don't have static methods, but they can be added afterward
   GaussianConic.vec = vec_g2d
@@ -131,21 +222,20 @@ def make_library(dtype=ti.f32):
   GaussianConic.get_cov = get_cov_g2d
 
 
-  Gaussian3D.vec = vec_g3d
-  Gaussian3D.to_vec = to_vec_g3d
-  Gaussian3D.from_vec = from_vec_g3d
-  Gaussian3D.unpack = unpack_vec_g3d
-  Gaussian3D.unpack_activate = unpack_activate_g3d
-  Gaussian3D.get_position = get_position_g3d
-  Gaussian3D.bounding_sphere = bounding_sphere
+  GaussianSurfel.vec = vec_surfel
+  GaussianSurfel.to_vec = to_vec_surfel
+  GaussianSurfel.from_vec = from_vec_surfel
+  GaussianSurfel.unpack = unpack_vec_surfel
+
+
+  Quad.vec = vec_quad
+  Quad.to_vec = to_vec_quad
+  Quad.from_vec = from_vec_quad
 
 
 
-  #
   # Projection related functions
   #
-
-  mat2x3f = ti.types.matrix(n=2, m=3, dtype=dtype)
 
   @ti.func
   def project_perspective_camera_image(
@@ -174,6 +264,22 @@ def make_library(dtype=ti.f32):
     return t
 
 
+  @ti.func 
+  def diag3(s:vec3):
+    return mat3([
+        [s.x, 0, 0],
+        [0, s.y, 0],
+        [0, 0, s.z]
+    ])
+  
+  @ti.func
+  def diag2(s:vec2):
+    return mat2([
+        [s.x, 0],
+        [0, s.y]
+    ])
+
+
   @ti.func
   def gaussian_covariance_in_camera(
       T_camera_world: mat4,
@@ -185,12 +291,7 @@ def make_library(dtype=ti.f32):
       
       W = T_camera_world[:3, :3]
       R = quat_to_mat(cov_rotation)
-
-      S = mat3([
-          [cov_scale.x, 0, 0],
-          [0, cov_scale.y, 0],
-          [0, 0, cov_scale.z]
-      ])
+      S = diag3(cov_scale)
       # covariance matrix, 3x3, equation (6) in the paper
       # Sigma = R @ S @ S.transpose() @ R.transpose()
       # cov_uv = J @ W @ Sigma @ W.transpose() @ J.transpose()  # equation (5) in the paper
@@ -208,7 +309,7 @@ def make_library(dtype=ti.f32):
       c = vec2(projection[0, 2], projection[1, 2])
       x, y, z = position
 
-      return mat2x3f([
+      return mat2x3([
          [f.x/z, 0, c.x/z - (c.x*z + f.x*x)/z**2],
          [0, f.y/z, c.y/z - (c.y*z + f.y*y)/z**2],
       ])
@@ -351,11 +452,46 @@ def make_library(dtype=ti.f32):
 
 
 
-
   @ti.func
   def cov_inv_basis(uv_cov: vec3, scale: dtype) -> mat2:
       basis = ti.Matrix.cols(cov_axes(uv_cov))
       return (basis * scale).inverse()
+
+
+  @ti.func
+  def intersect_surfel(camera_t_surfel:mat4, p: vec2):
+      """ Intersect a ray with the surfel plane
+      Args:
+          camera_t_surfel: homography transforms points from surfel space to camera space
+            (composition of surfel homography and projection 'WH' in 2D Gaussian Splatting paper)
+          p: point in image space
+      """
+
+      hu = ti.Vector([-1, 0, 0, p.x]) @ camera_t_surfel
+      hv = ti.Vector([0, -1, 0, p.y]) @ camera_t_surfel
+
+      return (vec2(hu.y * hv.w - hu.w * hv.y, 
+                   hu.w * hv.x - hu.x * hv.w) / 
+          (hu.x * hv.y - hu.y * hv.x))
+
+
+
+  @ti.func
+  def eval_surfel_at(camera_t_surfel:mat4, p: vec2, beta:ti.template()):
+      """ Evaluate the surfel at a point in image space
+      """
+      uv = intersect_surfel(camera_t_surfel, p)
+      return eval_surfel(camera_t_surfel, uv, beta)
+
+  @ti.func
+  def eval_surfel(camera_t_surfel:mat4, uv: vec2, beta:ti.template()):
+      """ Evaluate the surfel at a point on the surfel plane
+      """
+
+      depth = (camera_t_surfel @ ti.Vector([uv.x, uv.y, 1., 1.])).z
+      g = ti.exp(-((uv.x**2 + uv.y**2) / 2)**beta)
+
+      return g, depth
 
 
   @ti.func
@@ -367,6 +503,16 @@ def make_library(dtype=ti.f32):
       1 - 2*y2 - 2*z2, 2*x*y - 2*w*z, 2*x*z + 2*w*y,
       2*x*y + 2*w*z, 1 - 2*x2 - 2*z2, 2*y*z - 2*w*x,
       2*x*z - 2*w*y, 2*y*z + 2*w*x, 1 - 2*x2 - 2*y2
+    )
+
+  @ti.func
+  def quat_to_rot6d(q:vec4) -> mat2x3:
+    x, y, z, w = q
+    x2, y2, z2 = x*x, y*y, z*z
+
+    return mat3(
+      1 - 2*y2 - 2*z2, 2*x*y - 2*w*z, 2*x*z + 2*w*y,
+      2*x*y + 2*w*z, 1 - 2*x2 - 2*z2, 2*y*z - 2*w*x
     )
 
   @ti.func

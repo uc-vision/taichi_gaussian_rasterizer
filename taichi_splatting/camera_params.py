@@ -5,6 +5,18 @@ from beartype import beartype
 import torch
 
 
+def expand_proj(transform:torch.Tensor):
+  # expand 3x3 to 4x4 by padding with identity matrix
+  prefix = transform.shape[:-2]
+
+  expanded = torch.zeros((4, 4), dtype=transform.dtype, device=transform.device
+                       ).view(*[1 for _ in prefix] , 4, 4).expand(*prefix, 4, 4)
+  expanded[..., :3, :3] = transform
+  expanded[..., 3, 2] = 1.0
+  return expanded
+
+
+
 @beartype
 @dataclass
 class CameraParams:
@@ -22,11 +34,13 @@ class CameraParams:
     return self.T_image_camera.device
 
   @property
+  def full_projection(self):
+    return expand_proj(self.T_image_camera)
+
+  @property
   def T_image_world(self):
-    T_image_camera = torch.eye(4, 
-      device=self.T_image_camera.device, dtype=self.T_image_camera.dtype)
-    T_image_camera[0:3, 0:3] = self.T_image_camera
-    return T_image_camera @ self.T_camera_world
+    return self.full_projection @ self.T_camera_world
+  
   
   def requires_grad_(self, requires_grad: bool):
     self.T_image_camera.requires_grad_(requires_grad)

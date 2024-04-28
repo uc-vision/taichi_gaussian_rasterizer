@@ -1,7 +1,6 @@
 
 from dataclasses import dataclass
-from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Callable
 import numpy as np
 import taichi as ti
 from taichi.math import ivec2, vec2, mat2, vec3

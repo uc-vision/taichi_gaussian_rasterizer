@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import cv2
 
 from taichi_splatting.data_types import Gaussians3D, RasterConfig
-from taichi_splatting.camera_params import CameraParams
+from taichi_splatting.camera_params import CameraParams, expand_proj
 from taichi_splatting.conic.renderer import render_gaussians
 from taichi_splatting.torch_lib.transforms import expand44, join_rt, make_homog, quat_to_mat, transform33, transform44
 
@@ -48,15 +48,6 @@ def grid_2d(i, j):
 
 
 
-def expand_proj(transform:torch.Tensor):
-  # expand 3x3 to 4x4 by padding with identity matrix
-  prefix = transform.shape[:-2]
-
-  expanded = torch.zeros((4, 4), dtype=transform.dtype, device=transform.device
-                       ).view(*[1 for _ in prefix] , 4, 4).expand(*prefix, 4, 4)
-  expanded[..., :3, :3] = transform
-  expanded[..., 3, 2] = 1.0
-  return expanded
 
 
 
@@ -69,7 +60,6 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
   T_camera_world = T_camera_world.squeeze(0)
   T_image_camera = T_image_camera.squeeze(0)
 
-
   T_image_world = expand_proj(T_image_camera) @  T_camera_world
 
   R = quat_to_mat(rotation)
@@ -79,7 +69,10 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
   S = torch.eye(3, device=scale.device, dtype=scale.dtype
                   ).unsqueeze(0) * scale.unsqueeze(1)
   
+  
   world_t_splat = join_rt(R @ S, position)
+  print(world_t_splat)
+  
   image_t_splat = T_image_world @ world_t_splat
 
 
@@ -122,7 +115,7 @@ def gaussian_grid(n, scale=2):
   n = points_3d.shape[0]
 
   r = torch.tensor([1.0, 0.0, 0.0, 0.0])
-  s = torch.tensor([1.0, 1.0, 0.00001]) * scale / math.sqrt(2)
+  s = torch.tensor([1.0, 1.0, 0]) * scale / math.sqrt(2)
 
   return Gaussians3D(
     position = points_3d,
