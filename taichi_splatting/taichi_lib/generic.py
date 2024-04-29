@@ -99,7 +99,7 @@ def make_library(dtype=ti.f32):
       return contains
     
     @ti.func
-    def planes(self) -> ti.mat4x3:
+    def planes(self) -> mat4x3:
       planes = ti.Matrix.rows(
          [plane2d(self.points[i], self.points[(i + 1) % 4]) 
             for i in ti.static(range(4))])

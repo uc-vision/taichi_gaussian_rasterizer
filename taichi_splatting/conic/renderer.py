@@ -69,9 +69,12 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
       compute_split_heuristics:bool = False, compute_radii:bool = False):
 
 
-  
+  far, near = camera_params.far_plane, camera_params.near_plane
+
   if render_depth:
-    features = torch.cat([depth.unsqueeze(1), depth.pow(2).unsqueeze(1), features], dim=1)
+    ndc_depth =  (far + near - (2.0 * near * far) / depth) / (far - near)
+    ndc_depth = ndc_depth.unsqueeze(-1)
+    features = torch.cat([ndc_depth, ndc_depth.pow(2), features], dim=1)
 
   raster = rasterize(gaussians2d, depth, depth_range=(camera_params.near_plane, camera_params.far_plane), features=features.contiguous(),
     image_size=camera_params.image_size, config=config, compute_split_heuristics=compute_split_heuristics)
