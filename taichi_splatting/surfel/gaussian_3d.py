@@ -44,17 +44,22 @@ def gaussian3d_surfel_function(torch_dtype=torch.float32):
       camera_world = lib.mat4_from_ndarray(camera_t_world)
 
       pos = lib.transform_point(camera_world, position[idx])
-      rot = camera_world[:3, :3] @ lib.quat_to_mat(ti.math.normalize(rotation[idx]))
+      rot = lib.quat_to_mat(ti.math.normalize(rotation[idx]))
+
+      rot_cam = (camera_world[:3, :3] @ rot).transpose()
       scale = ti.exp(log_scale[idx].xy)
 
       # flip the surfel if the normal is pointing away from the camera
       back_facing = rot[2, 2] > 0
-      S = lib.diag2(lib.vec2(-scale.x if back_facing else scale.x, scale.y))
+      
+      tx = rot_cam[0, :] * scale.x * (-1 if back_facing else 1)
+      ty = rot_cam[1, :] * scale.y
 
 
       points[i] = lib.GaussianSurfel.to_vec(
           pos=pos,
-          axes = S @ rot[:2, :],
+          tx = tx,
+          ty = ty,
           alpha=lib.sigmoid(alpha_logit[idx][0]),
       )
 

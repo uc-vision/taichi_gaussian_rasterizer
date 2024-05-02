@@ -41,16 +41,16 @@ def make_library(dtype=ti.f32):
   @ti.dataclass
   class GaussianSurfel:
     pos   : vec3
-    axes  : mat3x2
+    tx   : vec3
+    ty   : vec3
     alpha : dtype
 
 
     @ti.func
     def world_t_surface(self) -> mat4:
-      x, y = self.axes.transpose()
       return ti.Matrix.cols([
-          vec4(x, 0), 
-          vec4(y, 0),
+          vec4(self.tx, 0), 
+          vec4(self.ty, 0),
           vec4(0),
           vec4(self.pos, 1)])
 
@@ -515,21 +515,8 @@ def make_library(dtype=ti.f32):
       2*x*z - 2*w*y, 2*y*z + 2*w*x, 1 - 2*x2 - 2*y2
     )
 
-  @ti.func
-  def quat_to_rot6d(q:vec4) -> mat3x2:
-    x, y, z, w = q
-    x2, y2, z2 = x*x, y*y, z*z
 
-    return mat3x2(
-      1 - 2*y2 - 2*z2, 2*x*y - 2*w*z, 
-      2*x*y + 2*w*z, 1 - 2*x2 - 2*z2, 
-      2*x*z - 2*w*y, 2*y*z + 2*w*x, 
-    )
   
-  @ti.func
-  def rot6d_to_mat(r:mat3x2) -> mat3:
-    x, y = r.transpose()
-    return mat3(x, y, ti.math.cross(x, y))
 
   @ti.func
   def join_rt(r:mat3, t:vec3) -> mat4:
