@@ -22,9 +22,12 @@ taichi_torch = {v:k for k,v in torch_taichi.items()}
 def struct_size(ti_struct:ti.lang.struct.StructType):
   size = 0
   for k, v in ti_struct.members.items():
-    if isinstance(v, ti.lang.matrix.VectorType):
 
+    if isinstance(v, ti.lang.matrix.MatrixType):
       size += prod(v.get_shape())
+    elif isinstance(v, ti.lang.matrix.VectorType):
+      size += prod(v.get_shape())
+    
     elif isinstance(v, ti.lang.struct.StructType):
       size += struct_size(v)
     else:

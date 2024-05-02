@@ -2,7 +2,7 @@
 
 from functools import partial
 from taichi_splatting.conic.renderer2d import render_gaussians, split_gaussians2d, uniform_split_gaussians2d
-from taichi_splatting.tests.random_data import random_2d_gaussians
+from taichi_splatting.testing import random_2d_gaussians
 import torch
 import taichi as ti
 

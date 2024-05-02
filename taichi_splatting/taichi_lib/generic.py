@@ -22,6 +22,8 @@ def make_library(dtype=ti.f32):
   mat4x2 = ti.types.matrix(4, 2, dtype=dtype)
   mat4x3 = ti.types.matrix(4, 3, dtype=dtype)
   
+  mat3x2 = ti.types.matrix(3, 2, dtype=dtype)
+
   mat2x3 = ti.types.matrix(2, 3, dtype=dtype)
   
 
@@ -156,14 +158,17 @@ def make_library(dtype=ti.f32):
   def to_vec_surfel(pos:vec3, axes:mat2x3, alpha:dtype) -> vec_surfel:
     return vec_surfel(*pos, *axes, alpha)
   
+
+  @ti.func
+  def to_vec_quad(p1:vec2, p2:vec2, p3:vec2, p4:vec2) -> vec_quad:
+    return vec_quad(*p1, *p2, *p3, *p4)
+
+  
   @ti.func
   def to_vec_aabb(lower:vec2, upper:vec2) -> vec_aabb:
     return vec_aabb(*lower, *upper)
   
-  @ti.func
-  def to_vec_quad(points:mat4x2) -> vec_quad:
-    return vec_quad(*points)
-  
+
   @ti.func
   def to_vec_obb(axes:mat2, uv:vec2) -> vec_obb:
     return vec_obb(*axes, *uv)
@@ -257,6 +262,10 @@ def make_library(dtype=ti.f32):
       return point_in_camera.xy / point_in_camera.z, point_in_camera.z
 
 
+  @ti.func
+  def transform_point(t: mat4, p: vec3) -> vec3:
+      return (t @ vec4(p, 1)).xyz  
+
 
   def camera_origin(T_camera_world: mat4):
     r, t = split_rt(T_camera_world)
@@ -348,12 +357,12 @@ def make_library(dtype=ti.f32):
   #
 
   @ti.func
-  def mat3_from_ndarray(ndarray:ti.template()):
+  def mat3_from_ndarray(ndarray:ti.template()) -> mat3:
     return mat3([ndarray[i, j] 
                             for i in ti.static(range(3)) for j in ti.static(range(3))])
 
   @ti.func
-  def mat4_from_ndarray(ndarray:ti.template()):
+  def mat4_from_ndarray(ndarray:ti.template()) -> mat4:
     return mat4([ndarray[i, j] 
                             for i in ti.static(range(4)) for j in ti.static(range(4))])
   @ti.func

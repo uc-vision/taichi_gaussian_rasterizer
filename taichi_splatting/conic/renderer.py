@@ -72,7 +72,8 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
   far, near = camera_params.far_plane, camera_params.near_plane
 
   if render_depth:
-    ndc_depth =  (far + near - (2.0 * near * far) / depth) / (far - near)
+    ndc_depth =  (0.5 + far + near - (2.0 * near * far) / depth) / (2.0 * (far - near))
+    
     ndc_depth = ndc_depth.unsqueeze(-1)
     features = torch.cat([ndc_depth, ndc_depth.pow(2), features], dim=1)
 

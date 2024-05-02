@@ -11,42 +11,30 @@ from taichi_splatting.torch_lib import transforms
 from taichi_splatting.torch_lib.util import inverse_sigmoid
 
 
+def grid_2d(i, j):
+  x, y = torch.meshgrid(torch.arange(i), torch.arange(j), indexing='ij')
+  return torch.stack([x, y], dim=-1)
 
-def random_camera(pos_scale:float=1., image_size:Optional[Tuple[int, int]]=None, image_size_range:int = (256, 1024)) -> CameraParams:
-  q = F.normalize(torch.randn((1, 4)))
-  t = torch.randn((3)) * pos_scale
 
-  T_world_camera = transforms.join_rt(transforms.quat_to_mat(q), t)
-  T_camera_world = torch.inverse(T_world_camera)
+def gaussian_grid(n, scale=2):
+  points = (grid_2d(n, n).view(-1, 2).to(torch.float32) - n // 2) * 2 * scale 
 
-  if image_size is None:
-    min_size, max_size = image_size_range
-    image_size = [x.item() for x in torch.randint(size=(2,), 
-              low=min_size, high=max_size)]
+  points_3d = torch.stack([*points.unbind(-1), torch.zeros_like(points[..., 0])], dim=-1)
+  n = points_3d.shape[0]
 
-  w, h = image_size
-  cx, cy = torch.tensor([w/2, h/2]) + torch.randn(2) * (w / 20) 
+  r = torch.tensor([1.0, 0.0, 0.0, 0.0])
+  s = torch.tensor([1.0, 1.0, 1e-6]) * scale / math.sqrt(2)
 
-  fov = torch.deg2rad(torch.rand(1) * 70 + 30)
-  fx = w / (2 * torch.tan(fov / 2))
-  fy = h / (2 * torch.tan(fov / 2))
-
-  T_image_camera = torch.tensor([
-    [fx, 0,  cx],
-    [0,  fy, cy],
-    [0,  0,  1]
-  ])
-
-  near_plane = 0.1
-  assert near_plane > 0
-
-  return CameraParams(
-    T_camera_world=T_camera_world,
-    T_image_camera=T_image_camera,
-    image_size=(w, h),
-    near_plane=near_plane,
-    far_plane=near_plane * 1000.
+  return Gaussians3D(
+    position = points_3d,
+    log_scaling = torch.log(s.view(1, 3)).expand(n, -1),
+    rotation = r.view(1, 4).expand(n, -1),
+    alpha_logit = torch.full((n, 1), fill_value=100.0),
+    feature = torch.rand(n, 3),
+    batch_size = (n,)
   )
+
+
 
 
 def random_3d_gaussians(n, camera_params:CameraParams, 

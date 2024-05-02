@@ -8,7 +8,7 @@ from taichi_splatting.conic.perspective import projection
 
 
 import taichi as ti
-from taichi_splatting.tests.random_data import random_3d_gaussians, random_camera
+from taichi_splatting.testing import random_3d_gaussians, random_camera
 
 
 def parse_args(args=None):

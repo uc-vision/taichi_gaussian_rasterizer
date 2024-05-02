@@ -26,7 +26,6 @@ def gaussian3d_surfel_function(torch_dtype=torch.float32):
   lib = get_library(dtype)
 
 
-
   @ti.kernel
   def gaussian3d_surfel_kernel(  
     position: ti.types.ndarray(lib.vec3, ndim=1),  # (M, 3) 
@@ -34,22 +33,26 @@ def gaussian3d_surfel_function(torch_dtype=torch.float32):
     rotation: ti.types.ndarray(lib.vec4,  ndim=1),  # (M, 4)
     alpha_logit: ti.types.ndarray(lib.vec1, ndim=1),  # (M)
     indexes: ti.types.ndarray(ti.i64, ndim=1),  # (N) indexes of points to render from 0 to M
-    
-    camera_t_world: ti.template(),  # (4, 4)
+  
+    camera_t_world: ti.types.ndarray(ti.f32, ndim=2),  # (4, 4)
+
     points: ti.types.ndarray(lib.GaussianSurfel.vec, ndim=1),  # (N, 10)
 
   ):
-
+    
     for i in range(indexes.shape[0]):
       idx = indexes[i]
 
-      pos = camera_t_world @ lib.vec4(*position[idx], 1)
-      rot = camera_t_world[:3, :3] @ lib.quat_to_mat(ti.math.normalize(rotation[idx]))
+      camera_world = lib.mat4_from_ndarray(camera_t_world)
+
+      pos = lib.transform_point(camera_world, position[idx])
+      rot = camera_world[:3, :3] @ lib.quat_to_mat(ti.math.normalize(rotation[idx]))
       scale = ti.exp(log_scale[idx].xy)
 
       # flip the surfel if the normal is pointing away from the camera
-      back_facing = rot[2, 2].z > 0
-      S = lib.diag(lib.vec2(-scale.x if back_facing else scale.x, scale.y))
+      back_facing = rot[2, 2] > 0
+      S = lib.diag2(lib.vec2(-scale.x if back_facing else scale.x, scale.y))
+
 
       points[i] = lib.GaussianSurfel.to_vec(
           pos=pos,
@@ -69,26 +72,26 @@ def gaussian3d_surfel_function(torch_dtype=torch.float32):
       points = torch.empty((n, lib.GaussianSurfel.vec.n), dtype=dtype, device=device)
 
       gaussian_tensors = (position, log_scaling, rotation, alpha_logit)
-      gaussian3d_surfel_kernel(*gaussian_tensors, indexes, points, camera_t_world)
+      gaussian3d_surfel_kernel(*gaussian_tensors, indexes, camera_t_world, points)
       
       ctx.indexes = indexes
       
       ctx.mark_non_differentiable(indexes)
-      ctx.save_for_backward(*gaussian_tensors, points)
+      ctx.save_for_backward(*gaussian_tensors, camera_t_world, points)
       
       return points
 
     @staticmethod
-    def backward(ctx, dpoints, ddepth):
+    def backward(ctx, dpoints):
 
       gaussian_tensors = ctx.saved_tensors[:4]
-      T_camera_world, points = ctx.saved_tensors[4:]
+      camera_t_world, points = ctx.saved_tensors[4:]
 
-      with restore_grad(*gaussian_tensors, T_camera_world, points):
+      with restore_grad(*gaussian_tensors, camera_t_world, points):
         points.grad = dpoints.contiguous()
         
         gaussian3d_surfel_kernel.grad(
-          *gaussian_tensors,  ctx.indexes, points)
+          *gaussian_tensors,  ctx.indexes, camera_t_world, points)
 
         return (*[tensor.grad for tensor in gaussian_tensors], None, )
 
@@ -110,7 +113,7 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
     camera_t_world.contiguous())
 
 @beartype
-def project_to_conic(gaussians:Gaussians3D, indexes:torch.Tensor, camera_params:CameraParams ) -> Tuple[torch.Tensor, torch.Tensor]:
+def gaussian3d_to_surfel(gaussians:Gaussians3D, indexes:torch.Tensor, camera_t_world:torch.Tensor ) -> torch.Tensor:
   """ 
   Convert Gaussians3D to planar representation (post-activation) for rendering.
   
@@ -122,8 +125,8 @@ def project_to_conic(gaussians:Gaussians3D, indexes:torch.Tensor, camera_params:
   """
 
   return apply(
-      *gaussians.shape_tensors(), indexes, camera_params.camera_t_world
-  )
+      *gaussians.shape_tensors(), indexes, camera_t_world)
+  
 
 
 

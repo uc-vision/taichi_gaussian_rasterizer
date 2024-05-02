@@ -8,26 +8,14 @@ import cv2
 from taichi_splatting.data_types import Gaussians3D, RasterConfig
 from taichi_splatting.camera_params import CameraParams, expand_proj
 from taichi_splatting.conic.renderer import render_gaussians
+from taichi_splatting.testing.camera import fov_to_focal, look_at
+from taichi_splatting.testing.gaussian import gaussian_grid
 from taichi_splatting.torch_lib.transforms import expand44, join_rt, make_homog, quat_to_mat, transform33, transform44
 
 import taichi as ti
 
 
-def fov_to_focal(fov, image_size):
-  return image_size / (2 * math.tan(fov / 2))
 
-def look_at(eye, target, up=None):
-  if up is None:
-    up = torch.tensor([0.0, 1.0, 0.0])
-
-
-  forward = F.normalize(target - eye, dim=0)
-  left = F.normalize(torch.cross(forward, up), dim=0)
-  true_up = torch.cross(left, forward, dim=0)
-  print(true_up)
-
-  R = torch.stack([left, true_up, forward])
-  return join_rt(R.T, eye)
 
 
 def numpy_image(image):
@@ -42,9 +30,6 @@ def display_image(name, image):
     cv2.waitKey(0)
 
 
-def grid_2d(i, j):
-  x, y = torch.meshgrid(torch.arange(i), torch.arange(j), indexing='ij')
-  return torch.stack([x, y], dim=-1)
 
 
 
@@ -71,7 +56,6 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
   
   
   world_t_splat = join_rt(R @ S, position)
-  print(world_t_splat)
   
   image_t_splat = T_image_world @ world_t_splat
 
@@ -107,33 +91,8 @@ def render_gaussians_kernel(
         depth_image[y, x] = ti.min(p.z, depth_image[y, x])
 
 
-def gaussian_grid(n, scale=2):
-  points = (grid_2d(n, n).view(-1, 2).to(torch.float32) - n // 2) * 2 * scale 
-  # points = (grid_2d(1, 1).view(-1, 2).to(torch.float32)) * 2
 
-  points_3d = torch.stack([*points.unbind(-1), torch.zeros_like(points[..., 0])], dim=-1)
-  n = points_3d.shape[0]
-
-  r = torch.tensor([1.0, 0.0, 0.0, 0.0])
-  s = torch.tensor([1.0, 1.0, 0]) * scale / math.sqrt(2)
-
-  return Gaussians3D(
-    position = points_3d,
-    log_scaling = torch.log(s.view(1, 3)).expand(n, -1),
-    rotation = r.view(1, 4).expand(n, -1),
-    alpha_logit = torch.full((n, 1), fill_value=100.0),
-    feature = torch.rand(n, 3),
-    batch_size = (n,)
-  )
-
-
-def main():
-  torch.set_printoptions(precision=4, sci_mode=False)
-  ti.init(arch=ti.cuda)
-
-  device = torch.device('cuda:0')
-  torch.set_default_device(device)
-
+def test_grid(device):
 
   pos = torch.tensor([4.0, 4.0, 3.0])
   target = torch.tensor([0.0, 0.0, 0.0])
@@ -149,10 +108,6 @@ def main():
 
   world_t_camera = look_at(pos, target)
 
-  
-  T_camera_world=torch.linalg.inv(world_t_camera)
-  T_image_camera=proj
-
   camera_params = CameraParams(
      T_camera_world=torch.linalg.inv(world_t_camera),
      T_image_camera=proj,
@@ -162,10 +117,28 @@ def main():
   
 
   gaussians = gaussian_grid(5, scale=1.0).to(device=device)
+  return gaussians, camera_params
+
+
+from taichi_splatting.surfel import gaussian3d_to_surfel
+
+
+def main():
+  torch.set_printoptions(precision=4, sci_mode=False)
+  ti.init(arch=ti.cuda)
+
+  device = torch.device('cuda:0')
+  torch.set_default_device(device)
+
+  gaussians, camera_params = test_grid(device)
+
+
+  surfel = gaussian3d_to_surfel(gaussians, torch.arange(0, gaussians.batch_size[0], device=device), camera_params.T_camera_world)
+
 
 
   image_t_splat = project_planes(gaussians.position, gaussians.log_scaling, gaussians.rotation, gaussians.alpha_logit,
-                     torch.arange(gaussians.batch_size[0]), T_image_camera, T_camera_world).contiguous()
+                     torch.arange(gaussians.batch_size[0]), camera_params.T_image_camera, camera_params.T_camera_world).contiguous()
 
   def find_threshold(alpha, beta):
     x = np.linspace(0, 4, 10000)
@@ -183,8 +156,9 @@ def main():
   corners = corners[:, :, 0:2] / corners[:, :, 2:3]
   
 
-  output_image = torch.zeros((*reversed(image_size), 3), dtype=torch.float32, device=device)
-  depth_image = torch.zeros(image_size, dtype=torch.float32, device=device)
+  image_shape = tuple(reversed(camera_params.image_size))
+  output_image = torch.zeros((*image_shape, 3), dtype=torch.float32, device=device)
+  depth_image = torch.zeros(image_shape, dtype=torch.float32, device=device)
 
   render_gaussians_kernel(output_image, depth_image, image_t_splat, gaussians.feature, beta=config.beta)
 

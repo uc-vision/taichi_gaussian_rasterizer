@@ -39,7 +39,7 @@ def project_to_conic_function(torch_dtype=torch.float32):
     T_camera_world: ti.types.ndarray(ndim=2),  # (4, 4)
     
     points: ti.types.ndarray(lib.GaussianConic.vec, ndim=1),  # (N, 6)
-    depth: ti.types.ndarray(ti.f32, ndim=1),  # (N, 3)
+    depth: ti.types.ndarray(ti.f32, ndim=1),  # (N,)
     blur_cov:ti.f32
   ):
 

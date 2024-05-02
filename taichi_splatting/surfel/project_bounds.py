@@ -39,16 +39,30 @@ def _surfel_bounds(torch_dtype=torch.float32, gaussian_scale:float=3.0):
 
       image_t_surfel = image_t_camera @ surfel.homography()
       
-      points = [image_t_surfel @ lib.vec4(*p, 1) for p in ti.static([
+      points = [lib.project_perspective(image_t_surfel, p)[0] for p in ti.static([
           [-gaussian_scale, -gaussian_scale, 0],
           [ gaussian_scale, -gaussian_scale, 0],
           [ gaussian_scale,  gaussian_scale, 0],
           [-gaussian_scale,  gaussian_scale, 0],
       ])]
-      
-      depth[i] = surfel_bounds.z
 
+      bounds[i] = lib.Quad.to_vec_quad(*points)
+      _, depth[i] = lib.project_perspective(surfel.pos, image_t_camera)
+
+
+  def f(surfel:torch.Tensor, image_t_camera:torch.Tensor):
+    n = surfel.shape[0]
+    bounds = torch.zeros(n, lib.Quad.vec.n, dtype=torch.float32)
+    depth = torch.zeros(n, dtype=torch.float32)
+
+    lib.surface_bounds_kernel(image_t_camera, surfel, bounds, depth)
+
+    return bounds, depth
+  
+  return f
 
 @beartype
-def surfel_bounds(points:torch.Tensor, projection:torch.Tensor):
-  pass
+def surfel_bounds(points:torch.Tensor, image_t_camera:torch.Tensor, gaussian_scale:float=3.0):
+    
+    compute_bounds = _surfel_bounds(points.dtype, gaussian_scale)
+    return compute_bounds(points, image_t_camera)
