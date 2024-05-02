@@ -1,10 +1,8 @@
 
 from functools import cache
-from beartype.typing import Tuple
 from beartype import beartype
 import taichi as ti
 import torch
-from taichi_splatting.camera_params import CameraParams
 from taichi_splatting.data_types import Gaussians3D
 from taichi_splatting.misc.autograd import restore_grad
 

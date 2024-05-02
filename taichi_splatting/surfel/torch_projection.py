@@ -11,9 +11,11 @@ from taichi_splatting.conic.renderer import render_gaussians
 from taichi_splatting.testing.camera import fov_to_focal, look_at
 from taichi_splatting.testing.gaussian import gaussian_grid
 from taichi_splatting.torch_lib.transforms import expand44, join_rt, make_homog, quat_to_mat, transform33, transform44
+from taichi_splatting.surfel import gaussian3d_to_surfel
+
 
 import taichi as ti
-
+import taichi_splatting.taichi_lib.f32 as lib
 
 
 
@@ -62,6 +64,31 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
 
   return image_t_splat
 
+
+
+
+@ti.kernel
+def render_surfel_kernel(
+  output_image:ti.types.ndarray(dtype=ti.math.vec3, ndim=2), 
+  depth_image:ti.types.ndarray(dtype=ti.f32, ndim=2),
+
+  surfels : ti.types.ndarray(dtype=lib.GaussianSurfel.vec, ndim=1), 
+  image_t_world_arr : ti.types.ndarray(dtype=ti.f32, ndim=2),
+  features:ti.types.ndarray(ti.math.vec3, ndim=1), beta:ti.f32):
+
+  for y, x in output_image:
+    image_t_world = lib.mat4_from_ndarray(image_t_world_arr)
+
+    for i in range(surfels.shape[0]):
+
+      surfel = lib.GaussianSurfel.from_vec(surfels[i])
+      image_t_surface =  image_t_world @ surfel.world_t_surface() 
+      
+      g, depth = lib.eval_surfel(image_t_surface, lib.vec2(x, y), beta)
+
+      if depth > 0:
+        output_image[y, x] += (features[i] * g)
+        depth_image[y, x] = ti.min(depth, depth_image[y, x])
 
 
 @ti.kernel
@@ -120,7 +147,6 @@ def test_grid(device):
   return gaussians, camera_params
 
 
-from taichi_splatting.surfel import gaussian3d_to_surfel
 
 
 def main():
@@ -137,8 +163,6 @@ def main():
 
 
 
-  image_t_splat = project_planes(gaussians.position, gaussians.log_scaling, gaussians.rotation, gaussians.alpha_logit,
-                     torch.arange(gaussians.batch_size[0]), camera_params.T_image_camera, camera_params.T_camera_world).contiguous()
 
   def find_threshold(alpha, beta):
     x = np.linspace(0, 4, 10000)
@@ -151,6 +175,10 @@ def main():
   r=find_threshold(config.alpha_threshold, config.beta)
   uv = torch.Tensor([[-r, -r, 1, 1], [r, -r, 1, 1], [r, r, 1, 1], [-r, r, 1, 1]]).to(device=device)
 
+
+  image_t_splat = project_planes(gaussians.position, gaussians.log_scaling, gaussians.rotation, gaussians.alpha_logit,
+                     torch.arange(gaussians.batch_size[0]), camera_params.T_image_camera, camera_params.T_camera_world).contiguous()
+
   # project corners
   corners = torch.einsum('nij,mj->nmi', image_t_splat, uv) 
   corners = corners[:, :, 0:2] / corners[:, :, 2:3]
@@ -160,8 +188,8 @@ def main():
   output_image = torch.zeros((*image_shape, 3), dtype=torch.float32, device=device)
   depth_image = torch.zeros(image_shape, dtype=torch.float32, device=device)
 
-  render_gaussians_kernel(output_image, depth_image, image_t_splat, gaussians.feature, beta=config.beta)
-
+  # render_gaussians_kernel(output_image, depth_image, image_t_splat, gaussians.feature, beta=config.beta)
+  render_surfel_kernel(output_image, depth_image, surfel, camera_params.T_image_camera, gaussians.feature, beta=config.beta)
 
   output_image = numpy_image(output_image)
 

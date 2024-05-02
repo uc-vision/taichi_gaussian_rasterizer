@@ -41,15 +41,16 @@ def make_library(dtype=ti.f32):
   @ti.dataclass
   class GaussianSurfel:
     pos   : vec3
-    axes  : mat2x3
+    axes  : mat3x2
     alpha : dtype
 
 
     @ti.func
-    def homography(self) -> mat4:
+    def world_t_surface(self) -> mat4:
+      x, y = self.axes.transpose()
       return ti.Matrix.cols([
-          vec4(self.axes[:, 0], 0), 
-          vec4(self.axes[:, 1], 0),
+          vec4(x, 0), 
+          vec4(y, 0),
           vec4(0),
           vec4(self.pos, 1)])
 
@@ -209,7 +210,7 @@ def make_library(dtype=ti.f32):
 
   @ti.func
   def from_vec_surfel(vec:vec_surfel) -> GaussianSurfel:
-    return GaussianSurfel(vec[0:3], vec[3:9], vec[9])
+    return GaussianSurfel(vec[0:3], ti.Matrix.cols([vec[3:6], vec[6:9]]), vec[9])
 
   @ti.func
   def from_vec_quad(vec:vec_quad) -> Quad:
@@ -515,14 +516,20 @@ def make_library(dtype=ti.f32):
     )
 
   @ti.func
-  def quat_to_rot6d(q:vec4) -> mat2x3:
+  def quat_to_rot6d(q:vec4) -> mat3x2:
     x, y, z, w = q
     x2, y2, z2 = x*x, y*y, z*z
 
-    return mat3(
-      1 - 2*y2 - 2*z2, 2*x*y - 2*w*z, 2*x*z + 2*w*y,
-      2*x*y + 2*w*z, 1 - 2*x2 - 2*z2, 2*y*z - 2*w*x
+    return mat3x2(
+      1 - 2*y2 - 2*z2, 2*x*y - 2*w*z, 
+      2*x*y + 2*w*z, 1 - 2*x2 - 2*z2, 
+      2*x*z - 2*w*y, 2*y*z + 2*w*x, 
     )
+  
+  @ti.func
+  def rot6d_to_mat(r:mat3x2) -> mat3:
+    x, y = r.transpose()
+    return mat3(x, y, ti.math.cross(x, y))
 
   @ti.func
   def join_rt(r:mat3, t:vec3) -> mat4:

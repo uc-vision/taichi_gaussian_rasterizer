@@ -37,9 +37,9 @@ def _surfel_bounds(torch_dtype=torch.float32, gaussian_scale:float=3.0):
     for i in range(points.shape[0]):
       surfel = lib.GaussianSurfel.from_vec(points[i])
 
-      image_t_surfel = image_t_camera @ surfel.homography()
+      image_t_surface = image_t_camera @ surfel.world_t_surface()
       
-      points = [lib.project_perspective(image_t_surfel, p)[0] for p in ti.static([
+      points = [lib.project_perspective(image_t_surface, p)[0] for p in ti.static([
           [-gaussian_scale, -gaussian_scale, 0],
           [ gaussian_scale, -gaussian_scale, 0],
           [ gaussian_scale,  gaussian_scale, 0],
