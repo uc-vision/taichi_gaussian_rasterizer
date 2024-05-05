@@ -34,12 +34,12 @@ class CameraParams:
     return self.T_image_camera.device
 
   @property
-  def full_projection(self):
+  def projection44(self):
     return expand_proj(self.T_image_camera)
 
   @property
   def T_image_world(self):
-    return self.full_projection @ self.T_camera_world
+    return self.projection44 @ self.T_camera_world
   
   
   def requires_grad_(self, requires_grad: bool):

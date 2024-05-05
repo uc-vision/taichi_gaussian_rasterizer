@@ -6,7 +6,7 @@ from beartype.typing import Optional, Tuple
 import torch
 
 from taichi_splatting.data_types import Gaussians3D, Rendering
-from taichi_splatting.misc.radius import compute_radius
+from taichi_splatting.conic.bounds import compute_radius
 from taichi_splatting.spherical_harmonics import  evaluate_sh_at
 
 from taichi_splatting.conic.rasterizer import rasterize, RasterConfig

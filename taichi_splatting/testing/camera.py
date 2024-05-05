@@ -20,7 +20,6 @@ def look_at(eye, target, up=None):
   forward = F.normalize(target - eye, dim=0)
   left = F.normalize(torch.cross(forward, up), dim=0)
   true_up = torch.cross(left, forward, dim=0)
-  print(true_up)
 
   R = torch.stack([left, true_up, forward])
   return transforms.join_rt(R.T, eye)

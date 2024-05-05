@@ -21,7 +21,7 @@ class Rendering:
 
   # Information relevant to points rendered
   points_in_view: torch.Tensor  # (N, 1) - indexes of points in view 
-  gaussians_2d: torch.Tensor    # (N, 6)   - 2D gaussians
+  gaussians_2d: torch.Tensor    # (N, 6)   - 2D gaussians in conic form
 
   split_heuristics: Optional[torch.Tensor] = None  # (N, 2) - split and prune heuristic
   radii : Optional[torch.Tensor] = None  # (N, 1) - radius of each point

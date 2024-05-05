@@ -31,12 +31,51 @@ def make_library(dtype=ti.f32):
   # Gaussian datatypes
   #
 
-
   @ti.dataclass
   class GaussianConic:
       uv        : vec2
       uv_conic  : vec3
       alpha   : dtype
+
+  vec_g2d = ti.types.vector(struct_size(GaussianConic), dtype=dtype)
+
+  @ti.func
+  def to_vec_g2d(uv:vec2, uv_conic:vec3, alpha:dtype) -> vec_g2d:
+    return vec_g2d(*uv, *uv_conic, alpha)
+  GaussianConic.vec = vec_g2d
+
+  @ti.func
+  def from_vec_g2d(vec:vec_g2d) -> GaussianConic:
+    return GaussianConic(vec[0:2], vec[2:5], vec[5])
+  
+  @ti.func
+  def unpack_vec_g2d(vec:vec_g2d):
+    return vec[0:2], vec[2:5], vec[5]
+  
+  @ti.func
+  def get_position_g2d(vec:vec_g2d) -> vec2:
+    return vec[0:2]
+  
+  @ti.func
+  def get_conic_g2d(vec:vec_g2d) -> vec3:
+    return vec[2:5]
+  
+
+  @ti.func
+  def get_cov_g2d(vec:vec_g2d) -> vec3:
+    conic = get_conic_g2d(vec)
+    return inverse_cov(conic)
+
+
+  # Taichi structs don't have static methods, but they can be added afterward
+  GaussianConic.to_vec = to_vec_g2d
+  GaussianConic.from_vec = from_vec_g2d
+  GaussianConic.unpack = unpack_vec_g2d
+
+  GaussianConic.get_position = get_position_g2d
+  GaussianConic.get_conic = get_conic_g2d
+  GaussianConic.get_cov = get_cov_g2d
+
 
   @ti.dataclass
   class GaussianSurfel:
@@ -54,10 +93,29 @@ def make_library(dtype=ti.f32):
           vec4(0),
           vec4(self.pos, 1)])
 
+  GaussianSurfel.vec = ti.types.vector(struct_size(GaussianSurfel), dtype=dtype)
+
+  @ti.func
+  def to_vec_surfel(pos:vec3, tx:vec3, ty:vec3, alpha:dtype) -> GaussianSurfel.vec:
+    return GaussianSurfel.vec(*pos, *tx, *ty, alpha)
+  
+  @ti.func
+  def from_vec_surfel(vec:GaussianSurfel.vec) -> GaussianSurfel:
+    return GaussianSurfel(vec[0:3], vec[3:6], vec[6:9], vec[9])
+  
+  @ti.func
+  def unpack_vec_surfel(vec:GaussianSurfel.vec):
+    return vec[0:3], vec[3:6], vec[6:9], vec[9]
+  
+  GaussianSurfel.to_vec = to_vec_surfel
+  GaussianSurfel.from_vec = from_vec_surfel
+  GaussianSurfel.unpack = unpack_vec_surfel
+
+
   @ti.dataclass
   class OBBox:
-    axes : mat2
     uv : vec2
+    axes : mat2
 
     @ti.func
     def contains_point(self, p:vec2):
@@ -65,7 +123,26 @@ def make_library(dtype=ti.f32):
       local = box_t_world @ (p - self.uv)
       return (local >= -1.0).all() and (local <= 1.0).all()
 
-      
+  OBBox.vec = ti.types.vector(struct_size(OBBox), dtype=dtype)
+
+  @ti.func
+  def to_vec_obb(axes:mat2, uv:vec2) -> OBBox.vec:
+    return OBBox.vec(*uv, *axes)
+
+  @ti.func
+  def from_vec_obb(vec:OBBox.vec) -> OBBox:
+    return OBBox(vec[0:2], mat2(vec[2:6]))
+  
+  @ti.func
+  def pack_obb(uv:vec2, axes:mat2) -> OBBox.vec:
+    return OBBox.vec(*uv, *axes)
+  
+
+  OBBox.to_vec = to_vec_obb
+  OBBox.from_vec = from_vec_obb
+  OBBox.pack = pack_obb
+  
+  
 
   @ti.dataclass
   class AABBox:
@@ -81,7 +158,15 @@ def make_library(dtype=ti.f32):
         vec2(self.upper.x, self.lower.y)
       ])
 
-    
+  AABBox.vec = ti.types.vector(struct_size(AABBox), dtype=dtype)
+
+  @ti.func
+  def to_vec_aabb(lower:vec2, upper:vec2) -> AABBox.vec:
+    return AABBox.vec(*lower, *upper)
+  
+  AABBox.vec = to_vec_aabb
+
+
   @ti.func
   def plane2d(p1:vec2, p2:vec2) -> vec3:
     n = ti.math.normalize(p2 - p1)
@@ -108,138 +193,22 @@ def make_library(dtype=ti.f32):
             for i in ti.static(range(4))])
       return planes
     
+  Quad.vec = ti.types.vector(struct_size(Quad), dtype=dtype)
 
-
-    # @ti.func
-    # def separates_aabb(self, aabb:AABBox):
-    #   corners = aabb.corners()
-
-    #   for i in range(4):
-    #     p1 = self.points[i] 
-    #     p2 = self.points[(i + 1) % 4]
-
-
-
-        
-
-  @ti.dataclass
-  class Gaussian3D:
-      position   : vec3
-      log_scaling : vec3
-      rotation    : vec4
-      alpha_logit : dtype
-
-      @ti.func
-      def alpha(self):
-        return sigmoid(self.alpha_logit)
-
-      @ti.func
-      def scale(self):
-          return ti.math.exp(self.log_scaling)
-
-
-  vec_g2d = ti.types.vector(struct_size(GaussianConic), dtype=dtype)
-  vec_g3d = ti.types.vector(struct_size(Gaussian3D), dtype=dtype)
-
-  vec_surfel = ti.types.vector(struct_size(GaussianSurfel), dtype=dtype)
-
-  vec_aabb = ti.types.vector(struct_size(AABBox), dtype=dtype)
-  vec_quad = ti.types.vector(struct_size(Quad), dtype=dtype)
-  vec_obb = ti.types.vector(struct_size(OBBox), dtype=dtype)
-
-
+  @ti.func
+  def to_vec_quad(p1:vec2, p2:vec2, p3:vec2, p4:vec2) -> Quad.vec:
+    return Quad.vec(*p1, *p2, *p3, *p4)
 
 
   @ti.func
-  def to_vec_g2d(uv:vec2, uv_conic:vec3, alpha:dtype) -> vec_g2d:
-    return vec_g2d(*uv, *uv_conic, alpha)
-
-  
-  @ti.func
-  def to_vec_surfel(pos:vec3, axes:mat2x3, alpha:dtype) -> vec_surfel:
-    return vec_surfel(*pos, *axes, alpha)
-  
-
-  @ti.func
-  def to_vec_quad(p1:vec2, p2:vec2, p3:vec2, p4:vec2) -> vec_quad:
-    return vec_quad(*p1, *p2, *p3, *p4)
-
-  
-  @ti.func
-  def to_vec_aabb(lower:vec2, upper:vec2) -> vec_aabb:
-    return vec_aabb(*lower, *upper)
-  
-
-  @ti.func
-  def to_vec_obb(axes:mat2, uv:vec2) -> vec_obb:
-    return vec_obb(*axes, *uv)
-
-
-
-  @ti.func
-  def unpack_vec_g2d(vec:vec_g2d):
-    return vec[0:2], vec[2:5], vec[5]
-  
-  @ti.func 
-  def unpack_vec_surfel(vec:vec_surfel):
-    return vec[0:3], vec[3:9], vec[9]
-
-  @ti.func
-  def get_position_g3d(vec:vec_g3d) -> vec3:
-    return vec[0:3]
-
-  @ti.func
-  def get_position_g2d(vec:vec_g2d) -> vec2:
-    return vec[0:2]
-
-  @ti.func
-  def get_conic_g2d(vec:vec_g2d) -> vec3:
-    return vec[2:5]
-
-
-  @ti.func
-  def get_cov_g2d(vec:vec_g2d) -> vec3:
-    conic = get_conic_g2d(vec)
-    return inverse_cov(conic)
-
-
-
-  @ti.func
-  def from_vec_g2d(vec:vec_g2d) -> GaussianConic:
-    return GaussianConic(vec[0:2], vec[2:5], vec[5])
-
-  @ti.func
-  def from_vec_surfel(vec:vec_surfel) -> GaussianSurfel:
-    return GaussianSurfel(vec[0:3], ti.Matrix.cols([vec[3:6], vec[6:9]]), vec[9])
-
-  @ti.func
-  def from_vec_quad(vec:vec_quad) -> Quad:
+  def from_vec_quad(vec:Quad.vec) -> Quad:
     return Quad(mat4x2(vec))
+  
 
-
-  # Taichi structs don't have static methods, but they can be added afterward
-  GaussianConic.vec = vec_g2d
-  GaussianConic.to_vec = to_vec_g2d
-  GaussianConic.from_vec = from_vec_g2d
-  GaussianConic.unpack = unpack_vec_g2d
-
-  GaussianConic.get_position = get_position_g2d
-  GaussianConic.get_conic = get_conic_g2d
-  GaussianConic.get_cov = get_cov_g2d
-
-
-  GaussianSurfel.vec = vec_surfel
-  GaussianSurfel.to_vec = to_vec_surfel
-  GaussianSurfel.from_vec = from_vec_surfel
-  GaussianSurfel.unpack = unpack_vec_surfel
-
-
-  Quad.vec = vec_quad
   Quad.to_vec = to_vec_quad
   Quad.from_vec = from_vec_quad
 
-
-
+  #
   # Projection related functions
   #
 
@@ -260,6 +229,7 @@ def make_library(dtype=ti.f32):
       T_image_world: mat4,
   ):
       point_in_camera = (T_image_world @ vec4(*position, 1))
+      
       return point_in_camera.xy / point_in_camera.z, point_in_camera.z
 
 
@@ -469,7 +439,7 @@ def make_library(dtype=ti.f32):
 
 
   @ti.func
-  def intersect_surfel(camera_t_surfel:mat4, p: vec2):
+  def intersect_surfel(image_t_surfel:mat4, p: vec2):
       """ Intersect a ray with the surfel plane
       Args:
           camera_t_surfel: homography transforms points from surfel space to camera space
@@ -477,8 +447,8 @@ def make_library(dtype=ti.f32):
           p: point in image space
       """
 
-      hu = ti.Vector([-1, 0, 0, p.x]) @ camera_t_surfel
-      hv = ti.Vector([0, -1, 0, p.y]) @ camera_t_surfel
+      hu = ti.Vector([-1, 0, 0, p.x]) @ image_t_surfel
+      hv = ti.Vector([0, -1, 0, p.y]) @ image_t_surfel
 
       return (vec2(hu.y * hv.w - hu.w * hv.y, 
                    hu.w * hv.x - hu.x * hv.w) / 
@@ -487,18 +457,18 @@ def make_library(dtype=ti.f32):
 
 
   @ti.func
-  def eval_surfel_at(camera_t_surfel:mat4, p: vec2, beta:ti.template()):
+  def eval_surfel(image_t_surfel:mat4, p: vec2, beta:ti.template()):
       """ Evaluate the surfel at a point in image space
       """
-      uv = intersect_surfel(camera_t_surfel, p)
-      return eval_surfel(camera_t_surfel, uv, beta)
+      uv = intersect_surfel(image_t_surfel, p)
+      return eval_surfel_uv(image_t_surfel, uv, beta)
 
   @ti.func
-  def eval_surfel(camera_t_surfel:mat4, uv: vec2, beta:ti.template()):
+  def eval_surfel_uv(image_t_surfel:mat4, uv: vec2, beta:ti.template()):
       """ Evaluate the surfel at a point on the surfel plane
       """
 
-      depth = (camera_t_surfel @ ti.Vector([uv.x, uv.y, 1., 1.])).z
+      depth = (image_t_surfel @ ti.Vector([uv.x, uv.y, 0., 1.])).z
       g = ti.exp(-((uv.x**2 + uv.y**2) / 2)**beta)
 
       return g, depth
