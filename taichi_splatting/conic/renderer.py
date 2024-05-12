@@ -1,11 +1,11 @@
 
 
 from dataclasses import dataclass
+from typing import Optional, Tuple
 from beartype import beartype
-from beartype.typing import Optional, Tuple
 import torch
 
-from taichi_splatting.data_types import Gaussians3D, Rendering
+from taichi_splatting.data_types import Gaussians3D
 from taichi_splatting.conic.bounds import compute_radius
 from taichi_splatting.spherical_harmonics import  evaluate_sh_at
 
@@ -13,6 +13,39 @@ from taichi_splatting.conic.rasterizer import rasterize, RasterConfig
 from taichi_splatting.conic.perspective import (project_to_conic, CameraParams)
 
 from taichi_splatting.culling import (frustum_culling)
+
+
+@dataclass 
+class Rendering:
+  """ Collection of outputs from the renderer, 
+  including image map(s) and point statistics for each rendered point.
+
+  depth and depth var are optional, as they are only computed if render_depth=True
+  split_heuristics is computed in the backward pass if compute_split_heuristics=True
+
+  radii is computed in the backward pass if compute_radii=True
+  """
+  image: torch.Tensor        # (H, W, C) - rendered image, C channels of features
+  image_weight: torch.Tensor # (H, W, 1) - weight of each pixel (total alpha)
+
+  # Information relevant to points rendered
+  points_in_view: torch.Tensor  # (N, 1) - indexes of points in view 
+  gaussians_2d: torch.Tensor    # (N, 6)   - 2D gaussians in conic form
+
+  point_depth: torch.Tensor = None  # (N, 1) - depth of each point in camera
+
+  split_heuristics: Optional[torch.Tensor] = None  # (N, 2) - split and prune heuristic
+  radii : Optional[torch.Tensor] = None  # (N, 1) - radius of each point
+
+  depth: Optional[torch.Tensor] = None      # (H, W)    - depth map 
+  depth_var: Optional[torch.Tensor] = None  # (H, W) - depth variance map
+
+  @property
+  def image_size(self) -> Tuple[int, int]:
+    h, w, _ = self.image.shape
+    return (w, h)
+
+
 
 
 @beartype
@@ -62,7 +95,7 @@ def render_gaussians(
 
 
 def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor, 
-      features:torch.Tensor, depth:torch.Tensor, 
+      features:torch.Tensor, point_depth:torch.Tensor, 
       camera_params: CameraParams, config:RasterConfig,      
 
       render_depth:bool = False, 
@@ -72,12 +105,12 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
   far, near = camera_params.far_plane, camera_params.near_plane
 
   if render_depth:
-    ndc_depth =  (0.5 + far + near - (2.0 * near * far) / depth) / (2.0 * (far - near))
+    ndc_depth =  (0.5 + far + near - (2.0 * near * far) / point_depth) / (2.0 * (far - near))
     
     ndc_depth = ndc_depth.unsqueeze(-1)
     features = torch.cat([ndc_depth, ndc_depth.pow(2), features], dim=1)
 
-  raster = rasterize(gaussians2d, depth, depth_range=(camera_params.near_plane, camera_params.far_plane), features=features.contiguous(),
+  raster = rasterize(gaussians2d, point_depth, depth_range=(camera_params.near_plane, camera_params.far_plane), features=features.contiguous(),
     image_size=camera_params.image_size, config=config, compute_split_heuristics=compute_split_heuristics)
 
   depth, depth_var = None, None
@@ -96,6 +129,8 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
 
   return Rendering(image=feature_image, 
                   image_weight=raster.image_weight, 
+                  point_depth=point_depth,
+
                   depth=depth, 
                   depth_var=depth_var, 
                     

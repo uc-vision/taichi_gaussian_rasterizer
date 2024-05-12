@@ -39,13 +39,17 @@ def _surfel_bounds(torch_dtype=torch.float32, gaussian_scale:float=3.0):
       image_t_surface = projection @ surfel.world_t_surface()
 
 
-      corners = [lib.project_perspective(p, image_t_surface)[0] for p in ti.static([
+      projected = [lib.project_perspective(p, image_t_surface) for p in ti.static([
           lib.vec3(-gaussian_scale, -gaussian_scale,  0),
-          lib.vec3(-gaussian_scale, gaussian_scale,   0),
-          lib.vec3(gaussian_scale, gaussian_scale,    0),
-          lib.vec3(gaussian_scale, -gaussian_scale,   0),
+          lib.vec3(-gaussian_scale,  gaussian_scale,   0),
+          lib.vec3(gaussian_scale,   gaussian_scale,    0),
+          lib.vec3(gaussian_scale,  -gaussian_scale,   0),
       ])]
 
+      corners, depths = ti.static(list(zip(*projected)))
+      print(depths)
+
+      print(corners)
 
       bounds[i] = lib.Quad.to_vec(*corners)
       pos, depth[i] = lib.project_perspective(surfel.pos, projection)

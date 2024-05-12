@@ -1,14 +1,17 @@
 from types import SimpleNamespace
 import taichi as ti
 
-from taichi_splatting.taichi_lib.conversions import struct_size
+from taichi_splatting.taichi_lib.conversions import struct_size, taichi_torch
 
-def make_library(dtype=ti.f32):
+def make_library(_dtype=ti.f32):
   """
   This function returns a namespace containing all the functions and data types
   that are used in the other modules. This is done to provide different precisions
   for the same code. Primarily for enabling gradient (gradcheck) testing using f64.
   """
+
+  dtype = _dtype
+  torch_dtype = taichi_torch[dtype]
 
   vec1 = ti.types.vector(1, dtype)
   vec2 = ti.types.vector(2, dtype)
@@ -23,8 +26,8 @@ def make_library(dtype=ti.f32):
   mat4x3 = ti.types.matrix(4, 3, dtype=dtype)
   
   mat3x2 = ti.types.matrix(3, 2, dtype=dtype)
-
   mat2x3 = ti.types.matrix(2, 3, dtype=dtype)
+  
   
 
   #
@@ -76,6 +79,14 @@ def make_library(dtype=ti.f32):
   GaussianConic.get_conic = get_conic_g2d
   GaussianConic.get_cov = get_cov_g2d
 
+  @ti.func
+  def surfel_homography(tx:vec3, ty:vec3, pos:vec3) -> mat4:
+    return ti.Matrix.cols([
+        vec4(tx, 0), 
+        vec4(ty, 0),
+        vec4(0),
+        vec4(pos, 1)])
+
 
   @ti.dataclass
   class GaussianSurfel:
@@ -87,11 +98,7 @@ def make_library(dtype=ti.f32):
 
     @ti.func
     def world_t_surface(self) -> mat4:
-      return ti.Matrix.cols([
-          vec4(self.tx, 0), 
-          vec4(self.ty, 0),
-          vec4(0),
-          vec4(self.pos, 1)])
+      return surfel_homography(self.tx, self.ty, self.pos)
 
   GaussianSurfel.vec = ti.types.vector(struct_size(GaussianSurfel), dtype=dtype)
 
@@ -187,9 +194,15 @@ def make_library(dtype=ti.f32):
       return contains
     
     @ti.func
+    def bounds(self):
+      lower = ti.Vector([ti.min(*self.points[:, 0]), ti.min(*self.points[:, 1])])
+      upper = ti.Vector([ti.max(*self.points[:, 0]), ti.max(*self.points[:, 1])])
+      return lower, upper
+    
+    @ti.func
     def planes(self) -> mat4x3:
       planes = ti.Matrix.rows(
-         [plane2d(self.points[i], self.points[(i + 1) % 4]) 
+         [plane2d(self.points[i, :], self.points[(i + 1) % 4, :]) 
             for i in ti.static(range(4))])
       return planes
     
@@ -202,7 +215,7 @@ def make_library(dtype=ti.f32):
 
   @ti.func
   def from_vec_quad(vec:Quad.vec) -> Quad:
-    return Quad(mat4x2(vec))
+    return Quad(mat4x2(*vec))
   
 
   Quad.to_vec = to_vec_quad
@@ -229,8 +242,16 @@ def make_library(dtype=ti.f32):
       T_image_world: mat4,
   ):
       point_in_camera = (T_image_world @ vec4(*position, 1))
-      
       return point_in_camera.xy / point_in_camera.z, point_in_camera.z
+
+  @ti.func
+  def project_perspective_vec(
+      position: vec3,
+      T_image_world: mat4,
+  ):
+      point_in_camera = (T_image_world @ vec4(*position, 1))
+      return point_in_camera.xyz / point_in_camera.z
+
 
 
   @ti.func

@@ -1,38 +1,10 @@
 from dataclasses import dataclass, replace
-from typing import Optional
 from beartype.typing import Tuple
 from beartype import beartype
 from tensordict import tensorclass
 import torch
 
 
-@dataclass 
-class Rendering:
-  """ Collection of outputs from the renderer, 
-  including image map(s) and point statistics for each rendered point.
-
-  depth and depth var are optional, as they are only computed if render_depth=True
-  split_heuristics is computed in the backward pass if compute_split_heuristics=True
-
-  radii is computed in the backward pass if compute_radii=True
-  """
-  image: torch.Tensor        # (H, W, C) - rendered image, C channels of features
-  image_weight: torch.Tensor # (H, W, 1) - weight of each pixel (total alpha)
-
-  # Information relevant to points rendered
-  points_in_view: torch.Tensor  # (N, 1) - indexes of points in view 
-  gaussians_2d: torch.Tensor    # (N, 6)   - 2D gaussians in conic form
-
-  split_heuristics: Optional[torch.Tensor] = None  # (N, 2) - split and prune heuristic
-  radii : Optional[torch.Tensor] = None  # (N, 1) - radius of each point
-
-  depth: Optional[torch.Tensor] = None      # (H, W)    - depth map 
-  depth_var: Optional[torch.Tensor] = None  # (H, W) - depth variance map
-
-  @property
-  def image_size(self) -> Tuple[int, int]:
-    h, w, _ = self.image.shape
-    return (w, h)
 
   
 @beartype

@@ -65,7 +65,7 @@ def split_by_samples(points: Gaussians2D, samples: torch.Tensor, depth_noise:flo
   
   return replace(gaussians,
     position = gaussians.position + point_samples,
-    depth = torch.clamp_min(gaussians.z_depth + torch.randn_like(gaussians.z_depth) * depth_noise, 1e-6),
+    z_depth = torch.clamp_min(gaussians.z_depth + torch.randn_like(gaussians.z_depth) * depth_noise, 1e-6),
     batch_size=(num_points * n, ))
    
 

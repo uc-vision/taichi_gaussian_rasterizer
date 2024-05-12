@@ -5,7 +5,7 @@ from typing import Tuple, Optional
 import torch
 import torch.nn.functional as F
 
-from taichi_splatting.conic.perspective import CameraParams
+from taichi_splatting import CameraParams
 
 from taichi_splatting.torch_lib import transforms
 

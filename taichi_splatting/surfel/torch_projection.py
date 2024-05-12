@@ -53,28 +53,6 @@ def project_planes(position, log_scaling, rotation, alpha_logit, indexes,
   return image_t_splat
 
 
-@ti.kernel
-def render_surfel_kernel(
-  output_image:ti.types.ndarray(dtype=ti.math.vec3, ndim=2), 
-  depth_image:ti.types.ndarray(dtype=ti.f32, ndim=2),
-
-  surfels : ti.types.ndarray(dtype=lib.GaussianSurfel.vec, ndim=1), 
-  projection_arr : ti.types.ndarray(dtype=ti.f32, ndim=2),
-  features:ti.types.ndarray(ti.math.vec3, ndim=1), beta:ti.f32):
-
-  for y, x in ti.ndrange(*output_image.shape):
-    projection = lib.mat4_from_ndarray(projection_arr)
-
-    for i in range(surfels.shape[0]):
-
-      surfel = lib.GaussianSurfel.from_vec(surfels[i])
-      image_t_surface =  projection @ surfel.world_t_surface() 
-      
-      g, depth = lib.eval_surfel(image_t_surface, lib.vec2(x, y), beta)
-
-      if depth > 0:
-        output_image[y, x] += (features[i] * g)
-        depth_image[y, x] = ti.min(depth, depth_image[y, x])
 
 
 

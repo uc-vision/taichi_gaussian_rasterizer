@@ -1,6 +1,6 @@
 
 from functools import cache
-from taichi_splatting.mapper.tile_mapper import map_to_tiles
+from taichi_splatting.conic.tile_mapper import map_to_tiles
 
 
 from .forward import RasterConfig, forward_kernel

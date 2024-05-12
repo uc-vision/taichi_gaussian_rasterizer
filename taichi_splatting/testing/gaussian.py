@@ -23,7 +23,7 @@ def gaussian_grid(n, scale=2):
   n = points_3d.shape[0]
 
   r = torch.tensor([1.0, 0.0, 0.0, 0.0])
-  s = torch.tensor([1.0, 1.0, 1e-6]) * scale / math.sqrt(2)
+  s = torch.tensor([0.2, 4.0, 1e-6]) * scale / math.sqrt(2)
 
   return Gaussians3D(
     position = points_3d,
@@ -85,7 +85,7 @@ def random_2d_gaussians(n, image_size:Tuple[int, int], num_channels=3, scale_fac
 
   return Gaussians2D(
     position=position,
-    depth=depth,
+    z_depth=depth,
     log_scaling=torch.log(scaling),
     rotation=rotation,
     alpha_logit=inverse_sigmoid(alpha),

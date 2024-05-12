@@ -1,16 +1,14 @@
-from functools import cache
 import math
 from numbers import Integral
 from beartype.typing import Tuple
-from beartype import beartype
 import taichi as ti
 from taichi.math import ivec2
 import torch
 from taichi_splatting import cuda_lib
-from taichi_splatting.data_types import RasterConfig
 
+from taichi_splatting.data_types import RasterConfig
+from taichi_splatting.mapper.grid_query import GridQuery
 from taichi_splatting.taichi_lib.conversions import torch_taichi
-from taichi_splatting.taichi_lib.grid_query import conic_grid_query
 
 def pad_to_tile(image_size: Tuple[Integral, Integral], tile_size: int):
   def pad(x):
@@ -24,12 +22,11 @@ def norm_depth(depth: ti.f32, near:ti.f32, far:ti.f32) -> ti.f32:
   ndc_depth =  (far + near - (2.0 * near * far) / depth) / (far - near)
   return ti.math.clamp((ndc_depth + 1.) / 2., 0.0, 1.0)
 
-@cache
-def tile_mapper(config:RasterConfig):
-  query_type = conic_grid_query(config)
+  
+def make_tile_mapper(grid_query:GridQuery, config:RasterConfig):
 
-  primitive_type = query_type.primitive
-  make_query = query_type.make_query  
+  make_query = grid_query.make_query  
+  primitive_type = grid_query.primitive
   tile_size = config.tile_size
 
   if not config.depth16:
@@ -80,8 +77,6 @@ def tile_mapper(config:RasterConfig):
 
 
 
-
-
   @ti.kernel
   def find_ranges_kernel(
       sorted_keys: ti.types.ndarray(torch_taichi[key_type], ndim=1),  # (M)
@@ -95,7 +90,7 @@ def tile_mapper(config:RasterConfig):
         
         next_tile_id = max_tile
         if idx + 1 < sorted_keys.shape[0]:
-           next_tile_id = get_tile_id(sorted_keys[idx + 1])
+          next_tile_id = get_tile_id(sorted_keys[idx + 1])
 
         
         if tile_id != next_tile_id:
@@ -144,7 +139,7 @@ def tile_mapper(config:RasterConfig):
 
 
   def sort_tile_depths(depths:torch.Tensor, depth_range:tuple[float, float], 
-                       tile_overlap_ranges:torch.Tensor, cum_overlap_counts:torch.Tensor, total_overlap:int, image_size):
+                      tile_overlap_ranges:torch.Tensor, cum_overlap_counts:torch.Tensor, total_overlap:int, image_size):
 
     overlap_key = torch.empty((total_overlap, ), dtype=key_type, device=cum_overlap_counts.device)
     overlap_to_point = torch.empty((total_overlap, ), dtype=torch.int32, device=cum_overlap_counts.device)
@@ -197,28 +192,3 @@ def tile_mapper(config:RasterConfig):
   return f
 
 
-@beartype
-def map_to_tiles(gaussians : torch.Tensor, 
-                 depth:torch.Tensor, 
-                 depth_range:Tuple[float, float],
-
-                 image_size:Tuple[Integral, Integral],
-                 config:RasterConfig
-                 
-                 ) -> Tuple[torch.Tensor, torch.Tensor]:
-  """ maps guassians to tiles, sorted by depth (front to back):
-    Parameters:
-     gaussians: (N, 6) torch.Tensor of packed gaussians, N is the number of gaussians
-     depths: (N)  torch.Tensor of encoded depths (float32)
-     depth_range: (near, far) tuple of floats
-
-     image_size: (2, ) tuple of ints, (width, height)
-     tile_config: configuration for tile mapper (tile_size etc.)
-
-    Returns:
-     overlap_to_point: (K, ) torch tensor, where K is the number of overlaps, maps overlap index to point index
-     tile_ranges: (M, 2) torch tensor, where M is the number of tiles, maps tile index to range of overlap indices
-    """
-
-  mapper = tile_mapper(config)
-  return mapper(gaussians, depth, depth_range, image_size)

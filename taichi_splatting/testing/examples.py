@@ -5,12 +5,12 @@ from taichi_splatting.camera_params import CameraParams
 from taichi_splatting.testing.camera import fov_to_focal, look_at
 from taichi_splatting.testing.gaussian import gaussian_grid
 
-def test_grid(n, device):
+def test_grid(n, device, scale=2.0, pos=(0.0, 3.5, 0.5)):
 
-  pos = torch.tensor([4.0, 4.0, 3.0])
+  pos = torch.tensor(pos)
   target = torch.tensor([0.0, 0.0, 0.0])
 
-  image_size = (1000, 1000)
+  image_size = (640, 480)
   f = fov_to_focal(math.radians(60.0), image_size[0])
 
   proj = torch.tensor([
@@ -29,5 +29,5 @@ def test_grid(n, device):
      ).to(device=device)
   
 
-  gaussians = gaussian_grid(n, scale=1.0).to(device=device)
+  gaussians = gaussian_grid(n, scale=scale).to(device=device)
   return gaussians, camera_params

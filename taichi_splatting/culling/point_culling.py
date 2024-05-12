@@ -5,7 +5,7 @@ import torch
 
 
 from taichi_splatting.taichi_lib.f32 import project_perspective
-from taichi_splatting.conic.perspective import CameraParams
+from taichi_splatting import CameraParams
  
 
 @ti.kernel

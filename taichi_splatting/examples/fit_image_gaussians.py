@@ -8,7 +8,6 @@ import taichi as ti
 
 import torch
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
-from taichi_splatting.misc.encode_depth import encode_depth32
 from taichi_splatting.conic.renderer2d import project_gaussians2d, uniform_split_gaussians2d
 
 from taichi_splatting.conic.rasterizer.function import rasterize
@@ -66,7 +65,7 @@ def psnr(a, b):
   return 10 * torch.log10(1 / torch.nn.functional.mse_loss(a, b))  
 
 
-def train_epoch(opt, gaussians, ref_image, epoch_size=100, config:RasterConfig = RasterConfig(), grad_alpha=0.9):
+def train_epoch(opt, gaussians, ref_image, epoch_size=100, config:RasterConfig = RasterConfig(), depth_range=(0.1, 100), grad_alpha=0.9):
     h, w = ref_image.shape[:2]
 
     contrib = torch.zeros((gaussians.batch_size[0], 2), device=gaussians.position.device)
@@ -77,7 +76,8 @@ def train_epoch(opt, gaussians, ref_image, epoch_size=100, config:RasterConfig =
       gaussians2d = project_gaussians2d(gaussians)  
 
       raster = rasterize(gaussians2d=gaussians2d, 
-        depth=gaussians.z_depth,
+        depth=gaussians.z_depth.squeeze(1),
+        depth_range=depth_range,
         features=gaussians.feature, 
         image_size=(w, h), 
         config=config,
@@ -127,7 +127,8 @@ def main():
 
   torch.manual_seed(cmd_args.seed)
 
-  gaussians = random_2d_gaussians(cmd_args.n, (w, h), scale_factor=0.1).to(torch.device('cuda:0'))
+  depth_range = (0.1, 100.0)
+  gaussians = random_2d_gaussians(cmd_args.n, (w, h), scale_factor=0.1, depth_range=depth_range).to(torch.device('cuda:0'))
   learning_rates = dict(
     position=0.1,
     log_scaling=0.05,
@@ -171,14 +172,14 @@ def main():
     epoch_size = cmd_args.epoch
 
     image, gradient, visibility, epoch_time = train(params.optimizer, params, ref_image, 
-                                        epoch_size=epoch_size, config=config)
+                                        epoch_size=epoch_size, config=config, depth_range=depth_range)
     
 
     with torch.no_grad():
 
       if cmd_args.show:
         conics = project_gaussians2d(params)
-        raster =  rasterize(conics, params.z_depth, gradient.contiguous().unsqueeze(-1), image_size=(w, h), config=config, compute_split_heuristics=True)
+        raster =  rasterize(conics, params.z_depth.squeeze(1), depth_range, gradient.contiguous().unsqueeze(-1), image_size=(w, h), config=config, compute_split_heuristics=True)
 
         err = torch.abs(ref_image - image)
         
