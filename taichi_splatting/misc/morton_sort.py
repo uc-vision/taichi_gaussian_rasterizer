@@ -4,10 +4,7 @@ from taichi.math import vec3, uvec3, clamp, uvec3
 from taichi_splatting import cuda_lib   
 
 from taichi_splatting.taichi_lib.f32 import AABBox
-
 import torch
-
-
 
 
 # https://stackoverflow.com/questions/
@@ -32,9 +29,6 @@ def spreads_bits64(x:ti.uint64) -> ti.uint64:
   return x
 
 
-
-
-
 @ti.dataclass
 class Grid:
 
@@ -43,7 +37,6 @@ class Grid:
 
   size:uvec3
   
-
   @ti.func
   def get_inc(self) -> Tuple[vec3, vec3]:
     inc = (self.upper - self.lower) / ti.cast(self.size, ti.f32)
@@ -133,17 +126,16 @@ def morton_argsort32(points:torch.Tensor, grid:Optional[Grid] = None):
 def morton_sort32(points:torch.Tensor, grid:Optional[Grid] = None):
   return points[morton_argsort32(points, grid)]
     
-def morton_argsort64(points:torch.Tensor, grid:Optional[Grid] = None):  
+def morton_argsort64(points:torch.Tensor, grid:Optional[Grid] = None): 
   if grid is None:
     grid = grid_from_points(points, ti.math.uvec3(2**20))
 
   codes = torch.empty(points.shape[0], dtype=torch.uint64, device=points.device)
-  code_points64_kernel(grid, points, codes)
+  code_points64_kernel(grid, points.contiguous(), codes)
   return cuda_lib.radix_argsort(codes)
 
 def morton_sort64(points:torch.Tensor, grid:Optional[Grid] = None):
   return points[morton_argsort64(points, grid)]
-
 
 
 

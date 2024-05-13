@@ -17,8 +17,6 @@ torch_taichi = {
     torch.uint32: ti.u32,
     torch.uint64: ti.u64,
     torch.bool: ti.u1,
-
-    # torch.uint16: ti.u16,
 }
 
 taichi_torch = {v:k for k,v in torch_taichi.items()}
