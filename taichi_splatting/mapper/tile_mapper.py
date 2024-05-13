@@ -31,14 +31,14 @@ def make_tile_mapper(grid_query:GridQuery, config:RasterConfig):
 
   if not config.depth16:
     max_tile = 65535
-    key_type = torch.int64
+    key_type = torch.uint64
     end_sort_bit = 48
 
     @ti.func
     def make_sort_key(depth, tile_id):
 
-        depth_32 = ti.bit_cast(depth, ti.i32)
-        return ti.cast(depth_32, ti.i64) | (ti.cast(tile_id, ti.i64) << 32)
+        depth_32 = ti.bit_cast(depth, ti.u32)
+        return ti.cast(depth_32, ti.u64) | (ti.cast(tile_id, ti.u64) << 32)
   
     @ti.func
     def get_tile_id(key):
@@ -47,18 +47,17 @@ def make_tile_mapper(grid_query:GridQuery, config:RasterConfig):
 
   else:
     max_tile = 65535
-    key_type = torch.int32
+    key_type = torch.uint32
     end_sort_bit = 32
 
     @ti.func
     def make_sort_key(depth:ti.f32, tile_id:ti.i32):
-        key_u32 = ti.cast(depth * 65535, ti.u32) | (ti.cast(tile_id, ti.u32) << 16)
-        return ti.bit_cast(key_u32, ti.i32)
+        return ti.cast(depth * 65535, ti.u32) | (ti.cast(tile_id, ti.u32) << 16)
+        
   
     @ti.func
-    def get_tile_id(key:ti.i32):
-      key_u32 = ti.bit_cast(key, ti.u32)
-      return ti.cast(key_u32 >> 16, ti.i32)
+    def get_tile_id(key:ti.u32):
+      return ti.cast(key >> 16, ti.i32)
 
 
 
@@ -148,7 +147,7 @@ def make_tile_mapper(grid_query:GridQuery, config:RasterConfig):
     generate_sort_keys_kernel(depths.contiguous(), near, far, tile_overlap_ranges, cum_overlap_counts, image_size,
                               overlap_key, overlap_to_point)
 
-    overlap_key, overlap_to_point  = cuda_lib.radix_sort_pairs(overlap_key, overlap_to_point, end_bit=end_sort_bit, unsigned=True)
+    overlap_key, overlap_to_point  = cuda_lib.radix_sort_pairs(overlap_key, overlap_to_point, end_bit=end_sort_bit)
     return overlap_key, overlap_to_point
   
 

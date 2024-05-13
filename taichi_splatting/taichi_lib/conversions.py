@@ -13,6 +13,11 @@ torch_taichi = {
     torch.int8: ti.i8,
     torch.int16: ti.i16,
     torch.uint8: ti.u8,
+    torch.uint16: ti.u16,
+    torch.uint32: ti.u32,
+    torch.uint64: ti.u64,
+    torch.bool: ti.u1,
+
     # torch.uint16: ti.u16,
 }
 

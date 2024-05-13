@@ -9,7 +9,7 @@ std::pair<torch::Tensor, torch::Tensor> segmented_sort_pairs(
   const torch::Tensor start_offset, const torch::Tensor end_offset);
 
 std::pair<torch::Tensor, torch::Tensor> radix_sort_pairs(
-  const torch::Tensor keys, const torch::Tensor values, int begin_bit=0, int end_bit=-1, bool force_unsigned=false);
+  const torch::Tensor keys, const torch::Tensor values, int begin_bit=0, int end_bit=-1);
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("full_cumsum", &full_cumsum, "Full cumulative sum");
