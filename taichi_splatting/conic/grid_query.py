@@ -58,10 +58,26 @@ def gaussian_tile_ranges(
     return cov_tile_ranges(uv, uv_cov, image_size, gaussian_scale, tile_size)
 
 
+@ti.func 
+def count_obb_tiles(uv:vec2, uv_cov:vec3, image_size:ivec2, tile_size:int=16, gaussian_scale:float=3.0) -> ti.i32:
+  min_tile, max_tile = cov_tile_ranges(uv, uv_cov, image_size, gaussian_scale, tile_size)
+  inv_basis = cov_inv_basis(uv_cov, gaussian_scale)
+
+  tile_span = max_tile - min_tile
+  rel_min_bound = min_tile * tile_size - uv
+
+  count = 0
+  
+  for tile_uv in ti.grouped(ti.ndrange(*tile_span)):
+      lower = rel_min_bound + tile_uv * tile_size
+      count += not separates_bbox(inv_basis, lower, lower + tile_size)
+
+  return count
+
 
 
 @cache
-def obb_grid_query(tile_size:int=16, gaussian_scale:float=3.0):
+def cov_obb_query(tile_size:int=16, gaussian_scale:float=3.0):
 
   @ti.dataclass
   class OBBGridQuery:
@@ -81,16 +97,12 @@ def obb_grid_query(tile_size:int=16, gaussian_scale:float=3.0):
       count = 0
       
       for tile_uv in ti.grouped(ti.ndrange(*self.tile_span)):
-        if self.test_tile(tile_uv):
-          count += 1
-
+        count += self.test_tile(tile_uv)
+          
       return count
 
   @ti.func 
-  def obb_grid_query(v: GaussianConic.vec, image_size:ivec2) -> OBBGridQuery:
-      uv, uv_conic, _ = GaussianConic.unpack(v)
-      uv_cov = inverse_cov(uv_conic)
-
+  def from_cov(uv:ti.math.vec2, uv_cov:ti.math.vec3, image_size:ivec2) -> OBBGridQuery:
       min_tile, max_tile = cov_tile_ranges(uv, uv_cov, image_size, gaussian_scale, tile_size)
 
       return OBBGridQuery(
@@ -102,11 +114,21 @@ def obb_grid_query(tile_size:int=16, gaussian_scale:float=3.0):
         tile_span = max_tile - min_tile)
 
 
+  @ti.func 
+  def from_conic(v: GaussianConic.vec, image_size:ivec2) -> OBBGridQuery:
+      uv, uv_conic, _ = GaussianConic.unpack(v)
+      uv_cov = inverse_cov(uv_conic)
+
+      return from_cov(uv, uv_cov, image_size)
+
+  return from_cov, from_conic
+  
+def obb_grid_query(tile_size:int=16, gaussian_scale:float=3.0):
+  from_cov, from_conic = cov_obb_query(tile_size, gaussian_scale)
   return GridQuery(
-    make_query = obb_grid_query,
+    make_query = from_conic,
     primitive = GaussianConic
   )
-
 
 @cache
 def box_grid_query(tile_size:int=16, gaussian_scale:float=3.0):
@@ -126,8 +148,14 @@ def box_grid_query(tile_size:int=16, gaussian_scale:float=3.0):
       return self.tile_span.x * self.tile_span.y
           
   @ti.func 
-  def range_grid_query(v: GaussianConic.vec, image_size:ivec2) -> RangeGridQuery:
+  def query_object(v: GaussianConic.vec, image_size:ivec2) -> RangeGridQuery:
       min_tile, max_tile = gaussian_tile_ranges(v, image_size, gaussian_scale, tile_size)
       return RangeGridQuery(
         min_tile = min_tile,
         tile_span = max_tile - min_tile)
+  
+  return GridQuery(
+    make_query = query_object,
+    primitive = GaussianConic
+  )
+

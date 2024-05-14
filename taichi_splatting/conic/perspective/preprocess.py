@@ -9,7 +9,7 @@ from taichi_splatting.misc.autograd import restore_grad
 
 from taichi_splatting.camera_params import CameraParams
 import taichi_splatting.taichi_lib.f32 as lib
-from taichi_splatting.conic.grid_query import cov_tile_ranges, obb_grid_query
+from taichi_splatting.conic.grid_query import count_obb_tiles
 
 # Ignore this from taichi/pytorch integration 
 # taichi/lang/kernel_impl.py:763: UserWarning: The .grad attribute of a Tensor 
@@ -20,8 +20,11 @@ import warnings
 warnings.filterwarnings('ignore', '(.*)that is not a leaf Tensor is being accessed(.*)') 
 
 
+
+
 @cache
 def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
+
 
   @ti.kernel
   def preprocess_conic_kernel(  
@@ -33,12 +36,12 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
     T_image_camera: ti.types.ndarray(ndim=2),  # (3, 3) camera projection
     T_camera_world: ti.types.ndarray(ndim=2),  # (4, 4)
 
-    image_size: ti.math.ivec2,   
     
     points: ti.types.ndarray(lib.GaussianConic.vec, ndim=1),  # (N, 6)
     depth: ti.types.ndarray(lib.dtype, ndim=1),  # (N,)
     tile_count: ti.types.ndarray(ti.i32, ndim=1),  # (N,)
 
+    image_size: ti.math.ivec2,   
     blur_cov:lib.dtype
   ):
 
@@ -58,16 +61,14 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
       
       # add small fudge factor blur to avoid numerical issues
       uv_cov += lib.vec3([blur_cov, 0, blur_cov]) 
-      uv_conic = lib.inverse_cov(uv_cov)
 
-      min_bound, max_bound = cov_tile_ranges(uv.xy, uv_cov, 
-                                             image_size, gaussian_scale, tile_size)
-
-      r = (max_bound - min_bound)
-      n = r.x * r.y
+      n = count_obb_tiles(uv, uv_cov, image_size, tile_size)
+      tile_count[idx] = n
 
       if n == 0:
         continue
+      
+      uv_conic = lib.inverse_cov(uv_cov)
 
       depth[idx] = point_in_camera.z
       points[idx] = lib.GaussianConic.to_vec(
@@ -135,8 +136,9 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
 @beartype
 def apply(position:torch.Tensor, log_scaling:torch.Tensor,
           rotation:torch.Tensor, alpha_logit:torch.Tensor,
-          indexes:torch.Tensor,
-          T_image_camera:torch.Tensor, T_camera_world:torch.Tensor,
+          T_image_camera:torch.Tensor, 
+          T_camera_world:torch.Tensor,
+          image_size:Tuple[int, int],
           blur_cov:float=0.3):
   
   _module_function = preprocess_conic_function(position.dtype)
@@ -145,10 +147,12 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
     log_scaling.contiguous(),
     rotation.contiguous(),
     alpha_logit.contiguous(),
-    indexes.contiguous(),
         
     T_image_camera.contiguous(), 
     T_camera_world.contiguous(),
+
+    ti.math.ivec2(image_size),
+    
     
     blur_cov)
 
