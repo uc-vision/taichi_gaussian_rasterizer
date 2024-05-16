@@ -10,18 +10,13 @@ from taichi_splatting.mapper.tile_mapper import make_tile_mapper
 from .grid_query import obb_grid_query
 
 
-def gaussian_scale(config:RasterConfig):
-  x = np.linspace(0, 4, 1000)
-  y = np.exp(-(0.5 * x**2) ** config.beta)
 
-  return x[np.argmax(y < 0.5 * config.alpha_threshold)]
   
 
 @cache
 def tile_mapper(config:RasterConfig):
   
-  scale = gaussian_scale(config)
-  grid_query = obb_grid_query(tile_size=config.tile_size, gaussian_scale=scale)
+  grid_query = obb_grid_query(tile_size=config.tile_size, gaussian_scale=config.gaussian_scale)
   return make_tile_mapper(grid_query, config)
 
 

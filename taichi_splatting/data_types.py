@@ -1,8 +1,10 @@
 from dataclasses import dataclass, replace
 from beartype.typing import Tuple
 from beartype import beartype
+import numpy as np
 from tensordict import tensorclass
 import torch
+
 
 
 
@@ -26,6 +28,12 @@ class RasterConfig:
   beta: float = 1.0 # multiplier on gaussian exponent e^-(d ^ (2 * beta))
   depth16: bool = False
 
+  @property
+  def gaussian_scale(self):
+    x = np.linspace(0, 4, 1000)
+    y = np.exp(-(0.5 * x**2) ** self.beta)
+
+    return x[np.argmax(y < 0.5 * self.alpha_threshold)]
 
 
 def check_packed3d(packed_gaussians: torch.Tensor):

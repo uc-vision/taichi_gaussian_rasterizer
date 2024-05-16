@@ -4,7 +4,7 @@ from beartype.typing import Tuple
 from beartype import beartype
 import taichi as ti
 import torch
-from taichi_splatting.data_types import Gaussians3D
+from taichi_splatting.data_types import Gaussians3D, RasterConfig
 from taichi_splatting.misc.autograd import restore_grad
 
 from taichi_splatting.camera_params import CameraParams
@@ -157,8 +157,8 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
     blur_cov)
 
 @beartype
-def project_to_conic(gaussians:Gaussians3D, indexes:torch.Tensor, camera_params: CameraParams, 
-                     ) -> Tuple[torch.Tensor, torch.Tensor]:
+def preprocess_conic(gaussians:Gaussians3D, camera_params: CameraParams, 
+                     config:RasterConfig) -> Tuple[torch.Tensor, torch.Tensor]:
   """ 
   Project 3D gaussians to 2D gaussians in image space using perspective projection.
   Use EWA approximation for the projection of the gaussian covariance,
@@ -175,7 +175,6 @@ def project_to_conic(gaussians:Gaussians3D, indexes:torch.Tensor, camera_params:
 
   return apply(
       *gaussians.shape_tensors(),
-      indexes,
       camera_params.T_image_camera, 
       camera_params.T_camera_world,
 
