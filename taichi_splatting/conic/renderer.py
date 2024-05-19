@@ -56,7 +56,8 @@ def render_gaussians(
   use_sh:bool = False,      
 
   compute_split_heuristics:bool = False,
-  compute_radii:bool = False
+  compute_radii:bool = False,
+  render_depth:bool = False
 ) -> Rendering:
   """
   A complete renderer for 3D gaussians. 
@@ -77,17 +78,19 @@ def render_gaussians(
     
   """
 
-  gaussians2d, point_depth, tile_counts = preprocess_conic(gaussians, camera_params)
+  gaussians2d, point_depth, tile_counts = preprocess_conic(gaussians, camera_params, config)
   indexes = torch.nonzero(tile_counts).squeeze(1)
 
   if use_sh:
     features = evaluate_sh_at(gaussians.feature, gaussians.position.detach(), indexes, camera_params.camera_position)
-  else:
-    features = gaussians.feature[indexes]
-    assert len(features.shape) == 2, f"Features must be (N, C) if use_sh=False, got {features.shape}"
+
+  assert len(features.shape) == 2, f"Features must be (N, C) if use_sh=False, got {features.shape}"
 
 
-  raster = rasterize(gaussians2d, point_depth, depth_range=camera_params.depth_range, features=features.contiguous(),
+  raster = rasterize(gaussians2d, 
+                     depth=point_depth, depth_range=camera_params.depth_range, 
+                     tile_counts=tile_counts,
+                     features=features.contiguous(),
     image_size=camera_params.image_size, config=config, compute_split_heuristics=compute_split_heuristics)
 
   heuristics = raster.point_split_heuristics if compute_split_heuristics else None

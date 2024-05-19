@@ -25,6 +25,8 @@ def map_to_tiles(primitives : torch.Tensor,
                 depth:torch.Tensor, 
                 depth_range:Tuple[float, float],
 
+                tile_counts:torch.Tensor,
+
                 image_size:Tuple[Integral, Integral],
                 config:RasterConfig
                 
@@ -44,5 +46,5 @@ def map_to_tiles(primitives : torch.Tensor,
     """
 
   mapper = tile_mapper(config)
-  return mapper(primitives, depth, depth_range, image_size)
+  return mapper(primitives, depth, depth_range, tile_counts, image_size)
 

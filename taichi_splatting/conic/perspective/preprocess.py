@@ -1,5 +1,6 @@
 
 from functools import cache
+from numbers import Integral
 from beartype.typing import Tuple
 from beartype import beartype
 import taichi as ti
@@ -42,7 +43,9 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
     tile_count: ti.types.ndarray(ti.i32, ndim=1),  # (N,)
 
     image_size: ti.math.ivec2,   
-    blur_cov:lib.dtype
+    depth_range: ti.math.vec2,
+    blur_cov:lib.dtype,
+
   ):
 
     for idx in range(position.shape[0]):
@@ -52,6 +55,12 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
 
       uv, point_in_camera = lib.project_perspective_camera_image(
           position[idx], camera_world, camera_image)
+      
+      if (point_in_camera.z < depth_range[0] or point_in_camera.z > depth_range[1] or 
+          uv.x < 0 or uv.x >= image_size[0] or uv.y < 0 or uv.y >= image_size[1]):
+
+        tile_count[idx] = 0
+        continue
     
       cov_in_camera = lib.gaussian_covariance_in_camera(
           camera_world, ti.math.normalize(rotation[idx]), ti.exp(log_scale[idx]))
@@ -61,14 +70,15 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
       
       # add small fudge factor blur to avoid numerical issues
       uv_cov += lib.vec3([blur_cov, 0, blur_cov]) 
+      uv_conic = lib.inverse_cov(uv_cov)
 
-      n = count_obb_tiles(uv, uv_cov, image_size, tile_size)
+
+      n = count_obb_tiles(uv, uv_conic, image_size, tile_size, gaussian_scale)
       tile_count[idx] = n
 
       if n == 0:
         continue
       
-      uv_conic = lib.inverse_cov(uv_cov)
 
       depth[idx] = point_in_camera.z
       points[idx] = lib.GaussianConic.to_vec(
@@ -82,39 +92,48 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
   class _module_function(torch.autograd.Function):
     @staticmethod
     def forward(ctx, position, log_scaling, rotation, alpha_logit,
-                indexes,
                 T_image_camera, T_camera_world,
+
+                image_size,
+                depth_range,
                 blur_cov):
       dtype, device = T_image_camera.dtype, T_image_camera.device
 
-      n = indexes.shape[0]
+      n = position.shape[0]
 
       points = torch.empty((n, lib.GaussianConic.vec.n), dtype=dtype, device=device)
       depth = torch.empty(n, dtype=dtype, device=device)
+      tile_counts = torch.empty(n, dtype=torch.int32, device=device)
 
       gaussian_tensors = (position, log_scaling, rotation, alpha_logit)
 
 
       preprocess_conic_kernel(*gaussian_tensors, 
-            indexes,
             T_image_camera, T_camera_world,
-            points, depth,
+            points, 
+            depth,
+            tile_counts,
+
+            image_size,
+            depth_range,
             blur_cov)
       
-      ctx.indexes = indexes
+      ctx.image_size = image_size
+      ctx.depth_range = depth_range
       ctx.blur_cov = blur_cov
+
       
-      ctx.mark_non_differentiable(indexes)
+      ctx.mark_non_differentiable(tile_counts)
       ctx.save_for_backward(*gaussian_tensors,
-         T_image_camera, T_camera_world, points, depth)
+         T_image_camera, T_camera_world, points, depth, tile_counts)
       
-      return points, depth
+      return points, depth, tile_counts
 
     @staticmethod
-    def backward(ctx, dpoints, ddepth):
+    def backward(ctx, dpoints, ddepth, _):
 
       gaussian_tensors = ctx.saved_tensors[:4]
-      T_image_camera, T_camera_world, points, depth = ctx.saved_tensors[4:]
+      T_image_camera, T_camera_world, points, depth, tile_counts = ctx.saved_tensors[4:]
 
       with restore_grad(*gaussian_tensors,  T_image_camera, T_camera_world, points, depth):
         points.grad = dpoints.contiguous()
@@ -122,14 +141,16 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
         
         preprocess_conic_kernel.grad(
           *gaussian_tensors,  
-          ctx.indexes,
           T_image_camera, T_camera_world, 
-          points, depth,
+          points, depth, tile_counts,
+
+          ctx.depth_range,
+          ctx.image_size,
           ctx.blur_cov)
 
         return (*[tensor.grad for tensor in gaussian_tensors], 
-                None, T_image_camera.grad, T_camera_world.grad,
-                None)
+                T_image_camera.grad, T_camera_world.grad,
+                None, None)
 
   return _module_function
 
@@ -138,10 +159,16 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
           rotation:torch.Tensor, alpha_logit:torch.Tensor,
           T_image_camera:torch.Tensor, 
           T_camera_world:torch.Tensor,
-          image_size:Tuple[int, int],
+
+          config:RasterConfig,
+
+          image_size:Tuple[Integral, Integral],
+          depth_range:Tuple[float, float],
           blur_cov:float=0.3):
   
-  _module_function = preprocess_conic_function(position.dtype)
+  _module_function = preprocess_conic_function( 
+        tile_size=config.tile_size, gaussian_scale=config.gaussian_scale)
+  
   return _module_function.apply(
     position.contiguous(),
     log_scaling.contiguous(),
@@ -152,13 +179,12 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
     T_camera_world.contiguous(),
 
     ti.math.ivec2(image_size),
-    
-    
+    ti.math.vec2(depth_range),
     blur_cov)
 
 @beartype
 def preprocess_conic(gaussians:Gaussians3D, camera_params: CameraParams, 
-                     config:RasterConfig) -> Tuple[torch.Tensor, torch.Tensor]:
+                     config:RasterConfig) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
   """ 
   Project 3D gaussians to 2D gaussians in image space using perspective projection.
   Use EWA approximation for the projection of the gaussian covariance,
@@ -171,6 +197,7 @@ def preprocess_conic(gaussians:Gaussians3D, camera_params: CameraParams,
   Returns:
     points:    torch.Tensor (N, 6)  - packed 2D gaussians in image space
     depth: torch.Tensor (N,)  - depth of each point in camera space
+    tile_count: torch.Tensor (N,) - number of tiles each point covers in the image
   """
 
   return apply(
@@ -178,6 +205,10 @@ def preprocess_conic(gaussians:Gaussians3D, camera_params: CameraParams,
       camera_params.T_image_camera, 
       camera_params.T_camera_world,
 
+      config,
+
+      image_size=camera_params.image_size,
+      depth_range=camera_params.depth_range,
       blur_cov = camera_params.blur_cov
   )
 

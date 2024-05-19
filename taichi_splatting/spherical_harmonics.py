@@ -121,15 +121,14 @@ def sh_function(degree:int=3, dimension:int=3,
                           camera_pos:ti.types.ndarray(ti_dtype, ndim=1),
                           out:ti.types.ndarray(vec, ndim=1)):
       
-      for i in range(indexes.shape[0]):
+      for idx in indexes:
           cam_pos = vec3(camera_pos[0], camera_pos[1], camera_pos[2])
-          idx = indexes[i]
 
-          coeffs = rsh_cart(ti.math.normalize(cam_pos -  points[idx]))
+          coeffs = rsh_cart(ti.math.normalize(points[idx] - cam_pos))
           params_i = params[idx]
 
           for d in ti.static(range(dimension)):
-              out[i][d] = ti.math.clamp(
+              out[idx][d] = ti.math.clamp(
                 coeffs.dot(params_i[d, :]) + 0.5, 0, 1)
 
 
@@ -138,7 +137,7 @@ def sh_function(degree:int=3, dimension:int=3,
     @staticmethod
     def forward(ctx, params:torch.Tensor, points:torch.Tensor, indexes:torch.Tensor, camera_pos:torch.Tensor) -> torch.Tensor:
         
-        out = torch.empty(indexes.shape[0], params.shape[1], dtype=dtype, device=params.device)
+        out = torch.empty(params.shape[0], params.shape[1], dtype=dtype, device=params.device)
         evaluate_sh_at_kernel(params, points, indexes, camera_pos, out)
 
         ctx.save_for_backward(params, points, camera_pos, out)

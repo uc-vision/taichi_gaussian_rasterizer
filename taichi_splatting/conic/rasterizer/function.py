@@ -132,9 +132,11 @@ def rasterize_with_tiles(gaussians2d: torch.Tensor, features: torch.Tensor,
   return RasterOut(image, image_weight, point_split_heuristics)
 
 
-def rasterize(gaussians2d:torch.Tensor, depth:torch.Tensor, depth_range:Tuple[float, float],
-                          features:torch.Tensor, image_size:Tuple[Integral, Integral],
-                          config:RasterConfig, compute_split_heuristics:bool=False) -> RasterOut:
+def rasterize(gaussians2d:torch.Tensor, 
+              depth:torch.Tensor, depth_range:Tuple[float, float],
+              tile_counts:torch.Tensor,
+              features:torch.Tensor, image_size:Tuple[Integral, Integral],
+              config:RasterConfig, compute_split_heuristics:bool=False) -> RasterOut:
     
     
   """
@@ -162,7 +164,10 @@ def rasterize(gaussians2d:torch.Tensor, depth:torch.Tensor, depth_range:Tuple[fl
     f"Size mismatch: got {gaussians2d.shape}, {depth.shape}, {features.shape}"
 
   # render with padding to tile_size, later crop back to original size
-  overlap_to_point, tile_overlap_ranges = map_to_tiles(gaussians2d, depth, depth_range, 
+  overlap_to_point, tile_overlap_ranges = map_to_tiles(
+    gaussians2d, depth, depth_range, 
+    tile_counts,
+
     image_size=image_size, config=config)
   
   return rasterize_with_tiles(gaussians2d, features, 

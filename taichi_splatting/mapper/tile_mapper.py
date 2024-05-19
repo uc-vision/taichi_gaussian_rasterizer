@@ -101,6 +101,9 @@ def make_tile_mapper(grid_query:GridQuery, config:RasterConfig):
 
   @ti.kernel
   def generate_sort_keys_kernel(
+      valid_idx:ti.types.ndarray(ti.i64, ndim=1),
+      # tile_counts:ti.types.ndarray(ti.i32, ndim=1),
+
       depths: ti.types.ndarray(ti.f32, ndim=1),  # (M)
       near:ti.f32, far:ti.f32,
 
@@ -117,12 +120,17 @@ def make_tile_mapper(grid_query:GridQuery, config:RasterConfig):
     tiles_wide = image_size.x // tile_size
 
     ti.loop_config(block_dim=128)
-    for idx in range(cumulative_overlap_counts.shape[0]):
+    for i in range(valid_idx.shape[0]):
+      idx = valid_idx[i]
+      
       query = make_query(gaussians[idx], image_size)
       key_idx = cumulative_overlap_counts[idx]
       
       depth = norm_depth(depths[idx], near, far)
       # depth = depths[idx]
+      # n = query.count_tiles()
+      # if n != tile_counts[idx]:
+      #   print(f"{idx}: Tile count mismatch {n} != {tile_counts[idx]}")
 
       for tile_uv in ti.grouped(ti.ndrange(*query.tile_span)):
         if query.test_tile(tile_uv):
@@ -133,58 +141,76 @@ def make_tile_mapper(grid_query:GridQuery, config:RasterConfig):
 
           # sort based on tile_id, depth
           overlap_sort_key[key_idx] = key
-          overlap_to_point[key_idx] = idx # map overlap index back to point index
+          overlap_to_point[key_idx] = ti.cast(idx, ti.i32) # map overlap index back to point index
           key_idx += 1
 
 
-  def sort_tile_depths(depths:torch.Tensor, depth_range:tuple[float, float], 
-                      tile_overlap_ranges:torch.Tensor, cum_overlap_counts:torch.Tensor, total_overlap:int, image_size):
+  def sort_tile_depths(valid_idx:torch.Tensor,
+                       tile_counts:torch.Tensor,
+                       depths:torch.Tensor, depth_range:tuple[float, float], 
+                      tile_overlap_ranges:torch.Tensor, 
+                      cum_overlap_counts:torch.Tensor, 
+                      total_overlap:int, image_size):
+    
+    # assert tile_counts[valid_idx].sum() == total_overlap, "Invalid tile counts"
+    # assert (tile_counts[valid_idx] > 0).all(), "Invalid tile counts"
 
     overlap_key = torch.empty((total_overlap, ), dtype=key_type, device=cum_overlap_counts.device)
     overlap_to_point = torch.empty((total_overlap, ), dtype=torch.int32, device=cum_overlap_counts.device)
 
     near, far  = depth_range
-    generate_sort_keys_kernel(depths.contiguous(), near, far, tile_overlap_ranges, cum_overlap_counts, image_size,
+    generate_sort_keys_kernel(valid_idx, depths.contiguous(), near, far, tile_overlap_ranges, cum_overlap_counts, image_size,
                               overlap_key, overlap_to_point)
 
     overlap_key, overlap_to_point  = cuda_lib.radix_sort_pairs(overlap_key, overlap_to_point, end_bit=end_sort_bit)
     return overlap_key, overlap_to_point
   
 
-  def generate_tile_overlaps(gaussians, image_size):
-    overlap_counts = torch.empty( (gaussians.shape[0], ), dtype=torch.int32, device=gaussians.device)
+  # def generate_tile_overlaps(gaussians, image_size):
+  #   overlap_counts = torch.empty( (gaussians.shape[0], ), dtype=torch.int32, device=gaussians.device)
 
-    tile_overlaps_kernel(gaussians, ivec2(image_size), overlap_counts)    
+  #   tile_overlaps_kernel(gaussians, ivec2(image_size), overlap_counts)    
           
-    cum_overlap_counts, total_overlap = cuda_lib.full_cumsum(overlap_counts)
-    return cum_overlap_counts[:-1], total_overlap
+  #   cum_overlap_counts, total_overlap = cuda_lib.full_cumsum(overlap_counts)
+  #   return cum_overlap_counts[:-1], total_overlap
 
-  def f(gaussians : torch.Tensor, depths:torch.Tensor, 
-        depth_range:tuple[float, float], image_size:Tuple[Integral, Integral]):
+  def f(gaussians : torch.Tensor, 
+        depths:torch.Tensor, 
+        depth_range:tuple[float, float], 
+        
+        tile_counts:torch.Tensor,
+        image_size:Tuple[Integral, Integral]):
 
     image_size = pad_to_tile(image_size, tile_size)
     tile_shape = (image_size[1] // tile_size, image_size[0] // tile_size)
+
 
     assert tile_shape[0] * tile_shape[1] < max_tile, \
       f"tile dimensions {tile_shape} for image size {image_size} exceed maximum tile count (16 bit id), try increasing tile_size" 
 
 
     with torch.no_grad():
-      cum_overlap_counts, total_overlap = generate_tile_overlaps(
-        gaussians, image_size)
-            
+      valid_idx = torch.nonzero(tile_counts).squeeze(1)
+
+      cum_overlap_counts, total_overlap = cuda_lib.full_cumsum(tile_counts)
+      cum_overlap_counts = cum_overlap_counts[:-1]
 
       # This needs to be initialised to zeros (not empty)
       # as sometimes there are no overlaps for a tile
       tile_ranges = torch.zeros((*tile_shape, 2), dtype=torch.int32, device=gaussians.device)
 
       if total_overlap > 0:
-        overlap_key, overlap_to_point = sort_tile_depths(
+        overlap_key, overlap_to_point = sort_tile_depths(valid_idx, tile_counts,
           depths, depth_range, gaussians, cum_overlap_counts, total_overlap, image_size)
         
         find_ranges_kernel(overlap_key, tile_ranges.view(-1, 2))
       else:
         overlap_to_point = torch.empty((0, ), dtype=torch.int32, device=gaussians.device)
+
+
+      # assert (overlap_to_point < gaussians.shape[0]).all(), "Invalid overlap_to_point index"
+      # assert (tile_ranges[..., 0] <= tile_ranges[..., 1]).all(), "Invalid tile ranges"
+      # assert (tile_ranges <= total_overlap).all(), "Invalid tile ranges"
 
       return overlap_to_point, tile_ranges
       
