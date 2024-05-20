@@ -121,7 +121,9 @@ def sh_function(degree:int=3, dimension:int=3,
                           camera_pos:ti.types.ndarray(ti_dtype, ndim=1),
                           out:ti.types.ndarray(vec, ndim=1)):
       
-      for idx in indexes:
+      for i in range(indexes.shape[0]):
+          idx = indexes[i]
+          
           cam_pos = vec3(camera_pos[0], camera_pos[1], camera_pos[2])
 
           coeffs = rsh_cart(ti.math.normalize(points[idx] - cam_pos))
