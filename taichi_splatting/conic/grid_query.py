@@ -58,6 +58,8 @@ def gaussian_tile_ranges(
     return cov_tile_ranges(uv, uv_cov, image_size, gaussian_scale, tile_size)
 
 
+
+
 @ti.func 
 def count_obb_tiles(uv:vec2, uv_conic:vec3, image_size:ivec2, tile_size:int=16, gaussian_scale:float=3.0) -> ti.i32:
   uv_cov = inverse_cov(uv_conic)

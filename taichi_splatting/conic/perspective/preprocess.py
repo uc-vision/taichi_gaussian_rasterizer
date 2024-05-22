@@ -6,11 +6,11 @@ from beartype import beartype
 import taichi as ti
 import torch
 from taichi_splatting.data_types import Gaussians3D, RasterConfig
+from taichi_splatting.mapper.grid_query import tile_ranges
 from taichi_splatting.misc.autograd import restore_grad
 
 from taichi_splatting.camera_params import CameraParams
 import taichi_splatting.taichi_lib.f32 as lib
-from taichi_splatting.conic.grid_query import count_obb_tiles
 
 # Ignore this from taichi/pytorch integration 
 # taichi/lang/kernel_impl.py:763: UserWarning: The .grad attribute of a Tensor 
@@ -40,7 +40,10 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
     
     points: ti.types.ndarray(lib.GaussianConic.vec, ndim=1),  # (N, 6)
     depth: ti.types.ndarray(lib.dtype, ndim=1),  # (N,)
+
     tile_count: ti.types.ndarray(ti.i32, ndim=1),  # (N,)
+    radii: ti.types.ndarray(ti.i32, ndim=1),  # (N, 1)
+    obb: ti.types.ndarray(lib.mat3x2, ndim=1),  # (N, 4)
 
     image_size: ti.math.ivec2,   
     depth_range: ti.math.vec2,
@@ -48,6 +51,7 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
 
   ):
 
+    ti.loop_config(block_dim=256)
     for idx in range(position.shape[0]):
 
       camera_image = lib.mat3_from_ndarray(T_image_camera)
@@ -56,9 +60,7 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
       uv, point_in_camera = lib.project_perspective_camera_image(
           position[idx], camera_world, camera_image)
       
-      if (point_in_camera.z < depth_range[0] or point_in_camera.z > depth_range[1] or 
-          uv.x < 0 or uv.x >= image_size[0] or uv.y < 0 or uv.y >= image_size[1]):
-
+      if (point_in_camera.z < depth_range[0] or point_in_camera.z > depth_range[1]):
         tile_count[idx] = 0
         continue
     
@@ -70,19 +72,26 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
       
       # add small fudge factor blur to avoid numerical issues
       uv_cov += lib.vec3([blur_cov, 0, blur_cov]) 
-      uv_conic = lib.inverse_cov(uv_cov)
 
+      radius = lib.radii_from_cov(uv_cov) * gaussian_scale
+      min_tile, max_tile =  tile_ranges(min_bound = ti.max(0.0, uv - radius), max_bound = uv + radius,
+        image_size = image_size, tile_size = tile_size)
 
-      n = count_obb_tiles(uv, uv_conic, image_size, tile_size, gaussian_scale)
+      tile_range = max_tile - min_tile
+      n = tile_range[0] * tile_range[1]
+
       tile_count[idx] = n
 
       if n == 0:
         continue
-      
 
+      uv_conic = lib.inverse_cov(uv_cov)
+      
+      radii[idx] = radius
+      tile_count[idx] = n
       depth[idx] = point_in_camera.z
       points[idx] = lib.GaussianConic.to_vec(
-          uv=uv.xy,
+          uv=uv,
           uv_conic=uv_conic,
           alpha=lib.sigmoid(alpha_logit[idx][0]),
       )
@@ -103,7 +112,7 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
 
       points = torch.empty((n, lib.GaussianConic.vec.n), dtype=dtype, device=device)
       depth = torch.empty(n, dtype=dtype, device=device)
-      tile_counts = torch.empty(n, dtype=torch.int32, device=device)
+      tile_counts = torch.zeros(n, dtype=torch.int32, device=device)
 
       gaussian_tensors = (position, log_scaling, rotation, alpha_logit)
 
