@@ -28,7 +28,7 @@ def make_library(_dtype=ti.f32):
   mat3x2 = ti.types.matrix(3, 2, dtype=dtype)
   mat2x3 = ti.types.matrix(2, 3, dtype=dtype)
   
-  
+  short_vec4 = ti.types.vector(4, ti.i16)
 
   #
   # Gaussian datatypes
@@ -68,6 +68,9 @@ def make_library(_dtype=ti.f32):
   def get_cov_g2d(vec:vec_g2d) -> vec3:
     conic = get_conic_g2d(vec)
     return inverse_cov(conic)
+
+
+
 
 
   # Taichi structs don't have static methods, but they can be added afterward
@@ -122,27 +125,26 @@ def make_library(_dtype=ti.f32):
   @ti.dataclass
   class OBBox:
     uv : vec2
-    axes : mat2
+    inv_basis : mat2
 
     @ti.func
     def contains_point(self, p:vec2):
-      box_t_world = ti.math.inverse(self.axis)
-      local = box_t_world @ (p - self.uv)
+      local = self.inv_basis @ (p - self.uv)
       return (local >= -1.0).all() and (local <= 1.0).all()
 
   OBBox.vec = ti.types.vector(struct_size(OBBox), dtype=dtype)
 
   @ti.func
-  def to_vec_obb(axes:mat2, uv:vec2) -> OBBox.vec:
-    return OBBox.vec(*uv, *axes)
+  def to_vec_obb(inv_basis:mat2, uv:vec2) -> OBBox.vec:
+    return OBBox.vec(*uv, *inv_basis)
 
   @ti.func
   def from_vec_obb(vec:OBBox.vec) -> OBBox:
     return OBBox(vec[0:2], mat2(vec[2:6]))
   
   @ti.func
-  def pack_obb(uv:vec2, axes:mat2) -> OBBox.vec:
-    return OBBox.vec(*uv, *axes)
+  def pack_obb(uv:vec2, inv_basis:mat2) -> OBBox.vec:
+    return OBBox.vec(*uv, *inv_basis)
   
 
   OBBox.to_vec = to_vec_obb
@@ -458,6 +460,10 @@ def make_library(_dtype=ti.f32):
       basis = ti.Matrix.cols(cov_axes(uv_cov))
       return (basis * scale).inverse()
 
+  @ti.func
+  def cov_obb_basis(uv: vec2, uv_cov: vec3, scale: dtype) -> mat2x3:
+      basis = cov_inv_basis(uv_cov, scale)
+      return ti.Matrix.cols([basis[:, 0], basis[:, 1], -uv])
 
   @ti.func
   def intersect_surfel(image_t_surfel:mat4, p: vec2):

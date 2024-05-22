@@ -192,8 +192,12 @@ def make_tile_mapper(grid_query:GridQuery, config:RasterConfig):
     with torch.no_grad():
       valid_idx = torch.nonzero(tile_counts).squeeze(1)
 
+
       cum_overlap_counts, total_overlap = cuda_lib.full_cumsum(tile_counts)
       cum_overlap_counts = cum_overlap_counts[:-1]
+
+      # indexes = torch.repeat_interleave(valid_idx, tile_counts[valid_idx])
+      # print(indexes[0])
 
       # This needs to be initialised to zeros (not empty)
       # as sometimes there are no overlaps for a tile
