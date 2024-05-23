@@ -25,7 +25,7 @@ def pad_to_tile(image_size: Tuple[Integral, Integral], tile_size: int):
 @cache
 def tile_mapper(config:RasterConfig, depth_type):
 
-  ti_depth_type = torch_taichi[depth_type]
+  # ti_depth_type = torch_taichi[depth_type]
 
   tile_size = config.tile_size
   grid_ops = make_grid_query(
@@ -94,7 +94,6 @@ def tile_mapper(config:RasterConfig, depth_type):
         image_size:Tuple[Integral, Integral]):
     
     image_size = pad_to_tile(image_size, tile_size)
-    # idx = cuda_lib.radix_argsort(depths)
     idx = torch.argsort(depths)
 
     with torch.no_grad():
@@ -106,7 +105,6 @@ def tile_mapper(config:RasterConfig, depth_type):
       overlap_offsets = overlap_sums[:-1].view(max_overlap_counts.shape)
 
       # allocate overlap array and sort key (depth)
-      # overlap_depths = torch.empty((total_overlaps,), dtype=depth_type, device=gaussians.device)
       overlap_to_point = torch.empty((total_overlaps,), dtype=torch.int32, device=gaussians.device)
 
       # allocate space for precise tile counts

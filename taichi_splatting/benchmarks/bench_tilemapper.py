@@ -32,6 +32,17 @@ def parse_args(args=None):
   return args
 
 
+def flatten_overlaps(overlaps, tile_ranges):
+  tile_ranges = tile_ranges.reshape(-1, 2)
+
+  ranges = [overlaps[tile_ranges[i, 0] : tile_ranges[i, 1]] 
+            for i in range(tile_ranges.shape[0])]
+
+  return torch.cat(ranges, dim=0)
+    
+    
+    
+
 def bench_rasterizer(args):
 
   ti.init(arch=ti.cuda, log_level=ti.INFO, 
@@ -67,6 +78,8 @@ def bench_rasterizer(args):
         config=config)
 
     overlaps, tile_ranges = map_to_tiles()
+    overlaps = flatten_overlaps(overlaps, tile_ranges)
+
     # assert torch.allclose(overlaps, ref_overlaps)
     # assert torch.allclose(tile_ranges, ref_tile_ranges)
 
