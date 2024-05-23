@@ -8,7 +8,7 @@ from taichi.math import ivec2
 import torch
 from taichi_splatting import cuda_lib
 from taichi_splatting.data_types import RasterConfig
-from taichi_splatting.taichi_lib.concurrent import add, block_reduce_i32, warp_allocate
+from taichi_splatting.taichi_lib.concurrent import warp_allocate
 
 from taichi_splatting.taichi_lib.f32 import (Gaussian2D)
 from taichi_splatting.taichi_lib.grid_query import make_grid_query
@@ -129,16 +129,12 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
       for tile_uv in ti.grouped(ti.ndrange(*query.tile_span)):  
           count += query.test_tile(tile_uv)
 
-      # block_total = block_reduce_i32(count, add, ti.atomic_add, 0)
-
-      # bump allocate spaces for overlaps for this gaussian
       offset = warp_allocate(total_overlaps, count)
-      # offset = ti.atomic_add(total_overlaps, count)
  
       for tile_uv in ti.grouped(ti.ndrange(*query.tile_span)):  
         if query.test_tile(tile_uv):
 
-          tile = tile_uv + query.min_tile      
+          tile = tile_uv + query.min_tile     
           tile_id = tile.x + tile.y * tiles_wide
 
           # sort based on tile_id, depth

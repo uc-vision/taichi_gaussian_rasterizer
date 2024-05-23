@@ -5,7 +5,7 @@ from pathlib import Path
 
 sources = [str(Path(__file__).parent  / filename)
             for filename in 
-          ["full_cumsum.cu", "radix_sort_pairs.cu", "segmented_sort_pairs.cu", "module.cpp"]]
+          ["full_cumsum.cu", "radix_sort_pairs.cu", "segmented_sort_pairs.cu", "segmented_radix_sort.cu", "module.cpp"]]
 
 cuda_lib = load("cuda_lib", sources=sources, verbose=True)
 
@@ -25,6 +25,21 @@ def full_cumsum(x:torch.Tensor) -> Tuple[torch.Tensor, int]:
   return out, total
 
 segmented_sort_pairs = cuda_lib.segmented_sort_pairs
+
+def segmented_radix_sort(keys:torch.Tensor, values:torch.Tensor, 
+                         start_offsets:torch.Tensor, end_offsets:torch.Tensor, 
+                         start_bit=0, end_bit=None):
+  check_cuda("keys", keys)
+  check_cuda("values", values)
+
+  if end_bit is None:
+    end_bit = -1
+
+  return cuda_lib.segmented_radix_sort(keys, values, 
+                                   start_offsets, end_offsets,
+                                   start_bit, end_bit)
+
+
 def radix_sort_pairs(keys:torch.Tensor, values:torch.Tensor, start_bit=0, end_bit=None, unsigned=False):
   check_cuda("keys", keys)
   check_cuda("values", values)
@@ -40,7 +55,7 @@ def radix_argsort(keys:torch.Tensor, start_bit=0, end_bit=None, unsigned=False):
 
 
 
-__all__ = ["full_cumsum", "radix_sort_pairs", "segmented_sort_pairs"]
+__all__ = ["full_cumsum", "radix_sort_pairs", "segmented_sort_pairs", "segmented_radix_sort"]
 
 
 if __name__ == "__main__":
@@ -51,9 +66,19 @@ if __name__ == "__main__":
   end_offsets = torch.tensor([8, 16, 20], dtype=torch.long, device="cuda")
 
   k1, v1 = segmented_sort_pairs(k, v, start_offsets, end_offsets)
+
+  print("segmented_sort_pairs")
   print(k1)
   print(v1)
 
+  k1, v1 = segmented_radix_sort(k, v, start_offsets, end_offsets)
+
+  print("segmented_radix_sort")
+  print(k1)
+  print(v1)
+
+
+  print("radix_sort_pairs")
   k2, v2 = radix_sort_pairs(k.long(), v)
   print(k2, k2.dtype)
   print(v2)
