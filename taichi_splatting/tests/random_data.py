@@ -87,7 +87,8 @@ def random_2d_gaussians(n, image_size:Tuple[int, int], num_channels=3, scale_fac
   depth = torch.rand((n, 1)) * (depth_range[1] - depth_range[0]) + depth_range[0]
   
   density_scale = scale_factor * w / (1 + math.sqrt(n))
-  scaling = (torch.rand(n, 2) + 0.2) * density_scale 
+  scaling = torch.exp(torch.rand(n, 2) + 0.1) * density_scale 
+
 
   rotation = torch.randn(n, 2) 
   rotation = rotation / torch.norm(rotation, dim=1, keepdim=True)

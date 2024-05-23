@@ -123,14 +123,15 @@ def tile_mapper(config:RasterConfig, depth_type=torch.int32):
       overlap_to_point: ti.types.ndarray(ti.i32, ndim=1),
 
   ):
-    tiles_wide = image_size.x // tile_size
 
     ti.loop_config(block_dim=128)
-    for idx in range(cumulative_overlap_counts.shape[0]):
+    for idx in cumulative_overlap_counts:
+      tiles_wide = image_size.x // tile_size
+
+
       query = grid_query(gaussians[idx], image_size)
       key_idx = cumulative_overlap_counts[idx]
       depth = depths[idx]
-
 
       for tile_uv in ti.grouped(ti.ndrange(*query.tile_span)):
         if query.test_tile(tile_uv):

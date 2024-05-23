@@ -34,6 +34,12 @@ def radix_sort_pairs(keys:torch.Tensor, values:torch.Tensor, start_bit=0, end_bi
 
   return cuda_lib.radix_sort_pairs(keys, values, start_bit, end_bit, unsigned)
 
+def radix_argsort(keys:torch.Tensor, start_bit=0, end_bit=None, unsigned=False):
+  values = torch.arange(keys.shape[0], dtype=torch.int32, device=keys.device)
+  return radix_sort_pairs(keys, values, start_bit, end_bit, unsigned)[1]
+
+
+
 __all__ = ["full_cumsum", "radix_sort_pairs", "segmented_sort_pairs"]
 
 

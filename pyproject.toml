@@ -14,7 +14,8 @@ dependencies = [
   "beartype", 
   "taichi-nightly", 
   "tqdm", 
-  "tensordict"
+  "tensordict <= 0.2",
+  "wandb"
 ]
 
 

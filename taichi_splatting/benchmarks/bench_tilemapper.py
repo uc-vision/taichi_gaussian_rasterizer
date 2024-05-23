@@ -41,29 +41,40 @@ def bench_rasterizer(args):
 
   depth_range = (0.1, 100.)
   gaussians = random_2d_gaussians(args.n, args.image_size, 
-          args.scale_factor, alpha_range=(0.5, 1.0), depth_range=depth_range).to(args.device)
+          scale_factor=args.scale_factor, alpha_range=(0.5, 1.0), depth_range=depth_range).to(args.device)
   config = RasterConfig(tile_size=args.tile_size, tight_culling=not args.no_tight_culling)
   
+  encoded_depth = encode_depth(
+    gaussians.z_depth, depth_range, use_depth16=args.depth16)
+
   gaussians2d = project_gaussians2d(gaussians)
+  ref_overlaps, ref_tile_ranges = tile_mapper.map_to_tiles(gaussians2d, 
+        encoded_depth=encoded_depth, 
+        image_size=args.image_size, 
+        config=config)
+
+
 
   for k, module in dict(bump=bump_mapper,
                         tile_mapper=tile_mapper, 
                         segmented=segmented_tile_mapper).items():
 
     def map_to_tiles():
-      encoded_depth = encode_depth(
-        gaussians.z_depth, depth_range, use_depth16=args.z_depth16)
+
       return module.map_to_tiles(gaussians2d, 
         encoded_depth=encoded_depth, 
         image_size=args.image_size, 
         config=config)
 
-    _, tile_ranges = map_to_tiles()
+    overlaps, tile_ranges = map_to_tiles()
+    # assert torch.allclose(overlaps, ref_overlaps)
+    # assert torch.allclose(tile_ranges, ref_tile_ranges)
 
     points_per_tile = (tile_ranges[:, :, 1] - tile_ranges[:, :, 0])
     overlap_ratio = points_per_tile.sum() / args.n 
+    total = overlaps.shape[0]
 
-    print(f'{k}: scale_factor={args.scale_factor}, n={args.n}, tile_size={args.tile_size} point_overlap={overlap_ratio:.2f} tile_points={points_per_tile.float().mean():.2f}')
+    print(f'{k}: scale_factor={args.scale_factor}, n={args.n}, tile_size={args.tile_size} point_overlap={overlap_ratio:.2f} total={total} tile_points={points_per_tile.float().mean():.2f}')
     benchmarked(k, map_to_tiles, profile=args.profile, iters=args.iters)  
 
     print('----------------------------------------------------------')    
