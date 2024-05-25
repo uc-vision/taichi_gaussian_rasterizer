@@ -41,7 +41,7 @@ def bench_rasterizer(args):
 
   depth_range = (0.1, 100.)
   gaussians = random_2d_gaussians(args.n, args.image_size, 
-          args.scale_factor, alpha_range=(0.5, 1.0), depth_range=depth_range).to(args.device)
+          scale_factor=args.scale_factor, alpha_range=(0.5, 1.0), depth_range=depth_range).to(args.device)
   config = RasterConfig(tile_size=args.tile_size, tight_culling=not args.no_tight_culling)
   
   gaussians2d = project_gaussians2d(gaussians)
@@ -52,7 +52,7 @@ def bench_rasterizer(args):
 
     def map_to_tiles():
       encoded_depth = encode_depth(
-        gaussians.z_depth, depth_range, use_depth16=args.z_depth16)
+        gaussians.z_depth, depth_range, use_depth16=args.depth16)
       return module.map_to_tiles(gaussians2d, 
         encoded_depth=encoded_depth, 
         image_size=args.image_size, 

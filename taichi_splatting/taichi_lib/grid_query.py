@@ -6,7 +6,26 @@ from taichi.math import ivec2, vec2, mat2, vec3
 from taichi_splatting.taichi_lib.f32 import (Gaussian2D, 
     inverse_cov, cov_inv_basis, radii_from_cov,)
 
+@ti.func
+def tile_ranges(
+    min_bound: vec2,
+    max_bound: vec2,
 
+    image_size: ti.math.ivec2,
+    tile_size: ti.template()
+):
+
+    max_tile = (image_size - 1) // tile_size + 1
+
+    min_tile_bound = ti.math.clamp(
+       ti.floor(min_bound / tile_size, ti.i32),
+       0, max_tile)
+    
+    max_tile_bound = ti.math.clamp(
+       ti.ceil(max_bound / tile_size, ti.i32),
+       0, max_tile)
+
+    return min_tile_bound, max_tile_bound
 
 
 def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0, tight_culling:bool=True):
@@ -71,6 +90,7 @@ def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0, tight_culling:bo
         tile_span = max_tile - min_tile)
 
 
+
   @ti.func
   def cov_tile_ranges(
       uv: vec2,
@@ -80,20 +100,8 @@ def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0, tight_culling:bo
 
       # avoid zero radii, at least 1 pixel
       radius = ti.max(radii_from_cov(uv_cov) * gaussian_scale, 1.0)  
-
-      min_bound = ti.max(0.0, uv - radius)
-      max_bound = uv + radius
-
-      max_tile = image_size // tile_size
-
-      min_tile_bound = ti.cast(min_bound / tile_size, ti.i32)
-      min_tile_bound = ti.min(min_tile_bound, max_tile)
-
-      max_tile_bound = ti.cast(max_bound / tile_size, ti.i32) + 1
-      max_tile_bound = ti.min(ti.max(max_tile_bound, min_tile_bound + 1),
-                          max_tile)
-
-      return min_tile_bound, max_tile_bound
+      return tile_ranges(uv - radius, uv + radius, image_size, tile_size)
+    
   
   @ti.func
   def gaussian_tile_bounds(
