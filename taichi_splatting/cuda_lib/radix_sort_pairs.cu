@@ -33,11 +33,13 @@ std::pair<torch::Tensor, torch::Tensor> radix_sort_pairs(
   
   assert (keys.dim() == 1 && values.dim() == 1), "keys and values must be 1D";
   assert (keys.size(0) == values.size(0)), "keys and values must have the same size";
-  
+  assert (values.scalar_type() == torch::kInt32), "values must be of type int32";
+
+
   auto keys_out = torch::empty_like(keys);
   auto values_out = torch::empty_like(values);
 
-  if (keys.scalar_type() == torch::kInt32 && values.scalar_type() == torch::kInt32 && force_unsigned) {
+  if (keys.scalar_type() == torch::kInt32 && force_unsigned) {
     // hack as torch does not currently support unsigned integers
 
     sort_helper<uint32_t, int32_t>(
@@ -47,7 +49,15 @@ std::pair<torch::Tensor, torch::Tensor> radix_sort_pairs(
 
       return std::make_pair(keys_out, values_out);
 
-  } else if (keys.scalar_type() == torch::kInt32 && values.scalar_type() == torch::kInt32) {
+  } else if (keys.scalar_type() == torch::kInt16) {
+    sort_helper<int16_t, int32_t>(
+      keys.data_ptr<int16_t>(), values.data_ptr<int32_t>(), 
+      keys_out.data_ptr<int16_t>(), values_out.data_ptr<int32_t>(),
+      keys.size(0), begin_bit, end_bit);
+
+      return std::make_pair(keys_out, values_out);
+
+  } else if (keys.scalar_type() == torch::kInt32) {
     sort_helper<int32_t, int32_t>(
       keys.data_ptr<int32_t>(), values.data_ptr<int32_t>(), 
       keys_out.data_ptr<int32_t>(), values_out.data_ptr<int32_t>(),
@@ -55,7 +65,7 @@ std::pair<torch::Tensor, torch::Tensor> radix_sort_pairs(
 
       return std::make_pair(keys_out, values_out);
 
-  } else if (keys.scalar_type() == torch::kInt64 && values.scalar_type() == torch::kInt32) {
+  } else if (keys.scalar_type() == torch::kInt64) {
     sort_helper<int64_t, int32_t>(
       keys.data_ptr<int64_t>(), values.data_ptr<int32_t>(), 
       keys_out.data_ptr<int64_t>(), values_out.data_ptr<int32_t>(),

@@ -22,9 +22,6 @@ def pad_to_tile(image_size: Tuple[Integral, Integral], tile_size: int):
 
 @cache
 def tile_mapper(config:RasterConfig):
-
-
-
   tile_size = config.tile_size
   grid_ops = make_grid_query(
     tile_size=tile_size, 
@@ -36,7 +33,7 @@ def tile_mapper(config:RasterConfig):
 
   @ti.kernel
   def tile_overlaps_kernel(
-      indexes : ti.types.ndarray(ti.i64, ndim=1),  # (M)
+      indexes : ti.types.ndarray(ti.i32, ndim=1),  # (M)
       gaussians: ti.types.ndarray(Gaussian2D.vec, ndim=1),  
       image_size: ivec2,
 
@@ -78,7 +75,7 @@ def tile_mapper(config:RasterConfig):
 
   @ti.kernel
   def generate_sort_keys_kernel(
-      indexes: ti.types.ndarray(ti.i64, ndim=1),  # (M)
+      indexes: ti.types.ndarray(ti.i32, ndim=1),  # (M)
       gaussians : ti.types.ndarray(Gaussian2D.vec, ndim=1),  # (M)
       cumulative_overlap_counts: ti.types.ndarray(ti.i32, ndim=1),  # (M)
       # (K), K = sum(num_overlap_tiles)
@@ -137,7 +134,8 @@ def tile_mapper(config:RasterConfig):
     assert tile_shape[0] * tile_shape[1] < max_tile, \
       f"tile dimensions {tile_shape} for image size {image_size} exceed maximum tile count (16 bit id), try increasing tile_size" 
 
-    indexes = torch.argsort(depths)
+    # indexes = torch.argsort(depths)
+    _, indexes = cuda_lib.radix_sort_pairs(depths, torch.arange(depths.shape[0], device=depths.device, dtype=torch.int32))
 
     with torch.no_grad():
       cum_overlap_counts, total_overlap = generate_tile_overlaps(indexes,
