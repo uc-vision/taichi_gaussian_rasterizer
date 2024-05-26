@@ -135,7 +135,7 @@ def make_library(_dtype=ti.f32):
   OBBox.vec = ti.types.vector(struct_size(OBBox), dtype=dtype)
 
   @ti.func
-  def to_vec_obb(inv_basis:mat2, uv:vec2) -> OBBox.vec:
+  def to_vec_obb(uv:vec2, inv_basis:mat2) -> OBBox.vec:
     return OBBox.vec(*uv, *inv_basis)
 
   @ti.func

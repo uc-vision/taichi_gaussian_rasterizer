@@ -78,8 +78,8 @@ def render_gaussians(
     
   """
 
-  gaussians2d, point_depth, tile_counts = preprocess_conic(gaussians, camera_params, config)
-  indexes = torch.nonzero(tile_counts).squeeze(1)
+  conics = preprocess_conic(gaussians, camera_params, config)
+  indexes = torch.nonzero(conics.tile_counts).squeeze(1)
 
   if use_sh:
     features = evaluate_sh_at(gaussians.feature, gaussians.position.detach(), indexes, camera_params.camera_position)

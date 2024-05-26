@@ -26,12 +26,13 @@ warnings.filterwarnings('ignore', '(.*)that is not a leaf Tensor is being access
 
 
 @tensorclass
-class OBBPrim:
+class ProcessedConic:
+  points : torch.Tensor # (N, 6) float32
+
   tile_range : torch.Tensor # (N, 4) short
   tile_count : torch.Tensor # (N,) int32
   obb : torch.Tensor # (N, 6) float32
-
-  depth : torch.Tensor # (N,) float32
+  depths : torch.Tensor # (N,) float32
   
 
 @cache
@@ -88,16 +89,15 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
       min_tile, max_tile =  tile_ranges(min_bound = ti.max(0.0, uv - radius), max_bound = uv + radius,
         image_size = image_size, tile_size = tile_size)
 
-      tile_range = max_tile - min_tile
-      n = tile_range[0] * tile_range[1]
+      n = (max_tile.x - min_tile.x) * (max_tile.y - min_tile.y)
 
       tile_count[idx] = n
 
       if n == 0:
         continue
 
-      obb[idx] = lib.OBBox.to_vec(
-        lib.cov_basis(uv, uv_cov, gaussian_scale))
+      obb[idx] = lib.OBBox.to_vec(uv,
+        lib.cov_inv_basis(uv_cov, gaussian_scale))
 
       tile_range[idx] = lib.short_vec4(min_tile, max_tile)
       tile_count[idx] = n
@@ -153,7 +153,7 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
       ctx.save_for_backward(*gaussian_tensors,
          T_image_camera, T_camera_world, points, depth, tile_counts, tile_ranges, obb)
       
-      return points, depth, tile_counts
+      return points, depth, tile_counts, tile_ranges, obb
 
     @staticmethod
     def backward(ctx, dpoints, ddepth, _):
@@ -216,7 +216,7 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
 
 @beartype
 def preprocess_conic(gaussians:Gaussians3D, camera_params: CameraParams, 
-                     config:RasterConfig) -> OBBPrim:
+                     config:RasterConfig) -> ProcessedConic:
   """ 
   Project 3D gaussians to 2D gaussians in image space using perspective projection.
   Use EWA approximation for the projection of the gaussian covariance,
@@ -227,11 +227,10 @@ def preprocess_conic(gaussians:Gaussians3D, camera_params: CameraParams,
     camera_params: CameraParams
 
   Returns:
-    points:    torch.Tensor (N, 6)  - packed 2D gaussians in image space
-    obb_prim:  OBBPrim - obb, depth and tile_ranges for each gaussian
+    points:   ProcessedConic
   """
 
-  return apply(
+  points, depth, tile_counts, tile_ranges, obb = apply(
       *gaussians.shape_tensors(),
       camera_params.T_image_camera, 
       camera_params.T_camera_world,
@@ -242,6 +241,10 @@ def preprocess_conic(gaussians:Gaussians3D, camera_params: CameraParams,
       depth_range=camera_params.depth_range,
       blur_cov = camera_params.blur_cov
   )
+
+  return ProcessedConic(points, 
+            tile_range=tile_ranges, tile_count=tile_counts, 
+            obb=obb, depths=depth)
 
 
 
