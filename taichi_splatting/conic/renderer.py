@@ -58,7 +58,7 @@ def render_gaussians(
   compute_split_heuristics:bool = False,
   compute_radii:bool = False,
   render_depth:bool = False
-) -> Rendering:
+): #-> Rendering:
   """
   A complete renderer for 3D gaussians. 
   Parameters:
@@ -87,21 +87,21 @@ def render_gaussians(
   assert len(features.shape) == 2, f"Features must be (N, C) if use_sh=False, got {features.shape}"
 
 
-  raster = rasterize(gaussians2d, 
-                     depth=point_depth, depth_range=camera_params.depth_range, 
-                     tile_counts=tile_counts,
-                     features=features.contiguous(),
-    image_size=camera_params.image_size, config=config, compute_split_heuristics=compute_split_heuristics)
+  # raster = rasterize(gaussians2d, 
+  #                    depth=point_depth, depth_range=camera_params.depth_range, 
+  #                    tile_counts=tile_counts,
+  #                    features=features.contiguous(),
+  #   image_size=camera_params.image_size, config=config, compute_split_heuristics=compute_split_heuristics)
 
-  heuristics = raster.point_split_heuristics if compute_split_heuristics else None
-  radii = compute_radius(gaussians2d) if compute_radii else None
+  # heuristics = raster.point_split_heuristics if compute_split_heuristics else None
+  # radii = compute_radius(gaussians2d) if compute_radii else None
 
-  return Rendering(image=raster.image, 
-                  image_weight=raster.image_weight, 
-                  point_depth=point_depth,
+  # return Rendering(image=raster.image, 
+  #                 image_weight=raster.image_weight, 
+  #                 point_depth=point_depth,
                     
-                  split_heuristics=heuristics,
-                  points_in_view=indexes,
-                  gaussians_2d = gaussians2d,
-                  radii=radii)
+  #                 split_heuristics=heuristics,
+  #                 points_in_view=indexes,
+  #                 gaussians_2d = gaussians2d,
+  #                 radii=radii)
 

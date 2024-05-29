@@ -13,6 +13,7 @@ from taichi_splatting.mapper.grid_query import tile_ranges
 from taichi_splatting.misc.autograd import restore_grad
 
 from taichi_splatting.camera_params import CameraParams
+from taichi_splatting.taichi_lib.concurrent import warp_scan_up
 import taichi_splatting.taichi_lib.f32 as lib
 
 
@@ -30,7 +31,7 @@ class ProcessedConic:
   points : torch.Tensor # (N, 6) float32
 
   tile_range : torch.Tensor # (N, 4) short
-  tile_count : torch.Tensor # (N,) int32
+  tile_counts : torch.Tensor # (N,) int32
   obb : torch.Tensor # (N, 6) float32
   depths : torch.Tensor # (N,) float32
   
@@ -61,7 +62,7 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
     depth_range: ti.math.vec2,
     blur_cov:lib.dtype,
 
-  ):
+  ) -> ti.f32:
 
     ti.loop_config(block_dim=256)
     for idx in range(position.shape[0]):
@@ -108,6 +109,7 @@ def preprocess_conic_function(tile_size:int=16, gaussian_scale:float=3.0):
           uv_conic=lib.inverse_cov(uv_cov),
           alpha=lib.sigmoid(alpha_logit[idx][0]),
       )
+
 
 
 
@@ -243,7 +245,7 @@ def preprocess_conic(gaussians:Gaussians3D, camera_params: CameraParams,
   )
 
   return ProcessedConic(points, 
-            tile_range=tile_ranges, tile_count=tile_counts, 
+            tile_range=tile_ranges, tile_counts=tile_counts, 
             obb=obb, depths=depth)
 
 
