@@ -1,9 +1,9 @@
+from collections import namedtuple
 from typing import Optional, Tuple
 import taichi as ti
 from taichi.math import vec3, uvec3, clamp, uvec3
 from taichi_splatting import cuda_lib   
 
-from taichi_splatting.taichi_lib.f32 import AABBox
 import torch
 
 
@@ -50,11 +50,6 @@ class Grid:
     v = (p - lower) / inc
     return ti.cast(clamp(v, 0, self.size - 1), ti.u32)
 
-
-  @ti.func
-  def cell_bounds(self, cell:uvec3) -> AABBox:
-    lower, inc = self.get_inc()
-    return AABBox(lower + cell * inc, lower + (cell + 1) * inc)
 
   @ti.func
   def in_bounds(self, cell:uvec3) -> bool:
@@ -104,10 +99,10 @@ def code_points32_kernel(
 def code_points64_kernel(
   grid:Grid,
   points:ti.types.ndarray(vec3, ndim=1), 
-  codes:ti.types.ndarray(ti.uint64, ndim=1)):
+  codes:ti.types.ndarray(ti.int64, ndim=1)):
   
   for i in range(points.shape[0]):
-    codes[i] = grid.morton_code64(points[i])
+    codes[i] = ti.cast(grid.morton_code64(points[i]), ti.int64)
 
 
 def grid_at_resolution(points:torch.Tensor, resolution:float, size:int = 2**20) -> Grid:
@@ -116,48 +111,53 @@ def grid_at_resolution(points:torch.Tensor, resolution:float, size:int = 2**20) 
 
   return Grid(vec3(lower), vec3(upper), size)
 
-    
-def argsort(points:torch.Tensor, resolution:float): 
+
+SortResult = namedtuple("values", "indices")
+
+
+def _sort(points:torch.Tensor, resolution:float): 
   grid = grid_at_resolution(points, resolution, size=2**20)
 
-  codes = torch.empty(points.shape[0], dtype=torch.uint64, device=points.device)
+  codes = torch.empty(points.shape[0], dtype=torch.int64, device=points.device)
   code_points64_kernel(grid, points.contiguous(), codes)
-  return cuda_lib.radix_argsort(codes)
+
+  idx = torch.arange(points.shape[0], device=points.device, dtype=torch.int64)
+  return cuda_lib.radix_sort_pairs(codes, idx)
 
 
-def sort(points:torch.Tensor, resolution:float):
-  return points[argsort(points, resolution)]
+def sort(points:torch.Tensor, resolution:float): 
+  _, idx = _sort(points, resolution)
+  return SortResult(points[idx], idx)
 
-
+def argsort(points:torch.Tensor, resolution:float):
+  _, idx = _sort(points, resolution)
+  return idx
 
 
 def argsort_dedup(points:torch.Tensor, resolution:float): 
-  grid = grid_at_resolution(points, resolution, size=2**20)
-
-  codes = torch.empty(points.shape[0], dtype=torch.uint64, device=points.device)
-  code_points64_kernel(grid, points.contiguous(), codes)
-  
-  idx = cuda_lib.radix_sort_pairs(codes, points)
-  codes = codes[idx]
+  codes, idx = _sort(points, resolution)
 
   codes, counts = torch.unique_consecutive(codes, return_counts=True)
   unique_idx = torch.cumsum(counts, dim=0) - 1
 
-  return unique_idx
-
+  return idx[unique_idx]
 
 
 def sort_dedup(points:torch.Tensor, resolution:float):
-  return points[argsort_dedup(points, resolution)]
-
-
-
+  idx = argsort_dedup(points, resolution)
+  return SortResult(points[idx], idx)
 
 
 if __name__ == "__main__":
   ti.init(arch=ti.gpu)
-
-  points = torch.rand(1000, 3).to(torch.float32).cuda()
-
-  argsort(points, 0.001)
+  points_int = torch.randint(0, 10, (1000, 3)).cuda() 
+  unique, unique_idx = torch.unique(points_int, dim=0, return_inverse=True)
   
+  points = points_int.to(torch.float32) + 0.5
+
+  idx1 = argsort(points, 1.0)
+  idx2 = argsort(points * 2 - 4, 2.0)
+  
+  assert torch.allclose(idx1, idx2)
+
+  idx3 = argsort_dedup(points, 1.0)
