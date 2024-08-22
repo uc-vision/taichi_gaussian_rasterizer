@@ -37,8 +37,8 @@ def make_library(dtype=ti.f32):
   vec_g2d = ti.types.vector(struct_size(Gaussian2D), dtype=dtype)
 
   @ti.func
-  def to_vec_g2d(uv:vec2, axis:vec2, scales:vec2, alpha:dtype) -> vec_g2d:
-    return vec_g2d(*uv, axis, *scales, alpha)
+  def to_vec_g2d(mean:vec2, axis:vec2, sigma:vec2, alpha:dtype) -> vec_g2d:
+    return vec_g2d(*mean, *axis, *sigma, alpha)
   
 
   @ti.func
@@ -226,14 +226,25 @@ def make_library(dtype=ti.f32):
       v1 = vec2(cov.x - lambda2, cov.y).normalized() 
       v2 = vec2(-v1.y, v1.x)
 
-      return lambda1, lambda2, v1, v2
+      return ti.sqrt(vec2(lambda1, lambda2)), v1, v2
 
 
 
   @ti.func
+  def ellipse_bounds(uv, v1, v2):
+    extent  = ti.sqrt(v1**2 + v2**2)
+    return (uv - extent), (uv + extent)
+  
+  @ti.func 
+  def clamp_bounds(lower:vec2, upper:vec2, image_size:ti.math.ivec2):
+    lower = ti.math.clamp(lower, 0, image_size - 1)
+    upper = ti.math.clamp(upper, 0, image_size - 1)
+    return lower, upper
+
+  @ti.func
   def cov_axes(cov:vec3):
-    lambda1, lambda2, v1, v2 = eig(cov)
-    return v1 * ti.sqrt(lambda1), v2 * ti.sqrt(lambda2)  
+    sigma, v1, v2 = eig(cov)
+    return v1 * sigma.x, v2 * sigma.y
 
 
   @ti.func
@@ -287,10 +298,6 @@ def make_library(dtype=ti.f32):
 
 
 
-  @ti.func
-  def cov_inv_basis(uv_cov: vec3, scale: dtype) -> mat2:
-      basis = ti.Matrix.cols(cov_axes(uv_cov))
-      return (basis * scale).inverse()
 
 
   @ti.func

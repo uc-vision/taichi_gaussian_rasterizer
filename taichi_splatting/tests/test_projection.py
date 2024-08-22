@@ -1,3 +1,4 @@
+import argparse
 from typing import Callable, Tuple
 from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians3D
@@ -15,7 +16,6 @@ import taichi as ti
 from torch.autograd.gradcheck import GradcheckError
 
 
-ti.init(arch=ti.cpu, offline_cache=True, log_level=ti.INFO, debug=True)
 
 
 def random_inputs(device='cpu', max_points=1000, dtype=torch.float32) -> Callable[[], Tuple[Gaussians3D, CameraParams]]:
@@ -108,8 +108,20 @@ def test_projection_grad(iters = 100):
         print(f"camera={camera}")
         raise e
 
-if __name__ == '__main__':
+def main(show=False, debug=False):
   torch.set_printoptions(precision=8, sci_mode=False)
+  ti.init(arch=ti.cpu, offline_cache=True, log_level=ti.INFO if not debug else ti.DEBUG, debug=debug)
+
 
   test_projection()
   test_projection_grad()
+
+
+if __name__ == "__main__":
+  parser = argparse.ArgumentParser()
+  parser.add_argument("--debug", action="store_true")
+  args = parser.parse_args()
+
+  main(args.debug)
+
+

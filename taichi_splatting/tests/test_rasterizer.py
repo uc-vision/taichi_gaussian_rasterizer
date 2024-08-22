@@ -81,7 +81,6 @@ def main(show=False, debug=False):
   torch.set_printoptions(precision=10, sci_mode=False)
   
 
-
   ti.init(arch=ti.cuda, default_fp=ti.f64, debug=debug)
   test_rasterizer_gradcheck(show)
 
@@ -92,4 +91,4 @@ if __name__ == "__main__":
   parser.add_argument("--debug", action="store_true")
   args = parser.parse_args()
 
-  main(args.show)
+  main(args.show, args.debug)
