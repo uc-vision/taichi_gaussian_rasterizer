@@ -28,6 +28,8 @@ def project_to_image_function(torch_dtype=torch.float32):
 
 
 
+
+
   @ti.kernel
   def project_kernel(  
     position: ti.types.ndarray(lib.vec3, ndim=1),  # (M, 3) 
@@ -60,6 +62,10 @@ def project_to_image_function(torch_dtype=torch.float32):
 
       radius = lib.radii_from_cov(uv_cov) * gaussian_scale
 
+      lam1, lam2, v1, _ = lib.eig(uv_cov + lib.vec3([blur_cov, 0, blur_cov]))
+      sigma = ti.sqrt(lib.vec2([lam1, lam2]))
+
+
       in_view = ((z > depth_range[0]) and (z < depth_range[1]) and 
         (uv.x >= -radius) and (uv.x < image_size.x + radius) and 
         (uv.y >= -radius) and (uv.y < image_size.y + radius)
@@ -70,14 +76,13 @@ def project_to_image_function(torch_dtype=torch.float32):
 
       else:
 
-          # add small fudge factor blur to avoid numerical issues
-        uv_conic = lib.inverse_cov(uv_cov + lib.vec3([blur_cov, 0, blur_cov]))
 
         depth[idx] = z
         points[idx] = lib.Gaussian2D.to_vec(
-            uv=uv,
-            uv_conic=uv_conic,
-            alpha=lib.sigmoid(alpha_logit[idx][0]),
+            mean  = uv,
+            axis  = v1,
+            sigma = sigma,
+            alpha = lib.sigmoid(alpha_logit[idx][0]),
         )
 
 
@@ -109,13 +114,13 @@ def project_to_image_function(torch_dtype=torch.float32):
         T_camera_world[idx], projection[idx], image_size,
         position[idx], ti.math.normalize(rotation[idx]), ti.exp(log_scale[idx]), clamp_margin)
 
-      # add small fudge factor blur to avoid numerical issues
-      uv_conic = lib.inverse_cov(uv_cov + lib.vec3([blur_cov, 0, blur_cov]))
+      lam1, lam2, v1, _ = lib.eig(uv_cov + lib.vec3([blur_cov, 0, blur_cov]))
 
-      depth[i] = z
-      points[i] = lib.Gaussian2D.to_vec(
-          uv=uv,
-          uv_conic=uv_conic,
+      depth[idx] = z
+      points[idx] = lib.Gaussian2D.to_vec(
+          mean=uv,
+          axis = v1,
+          sigma = ti.sqrt(lib.vec2([lam1, lam2])),
           alpha=lib.sigmoid(alpha_logit[idx][0]),
       )
 

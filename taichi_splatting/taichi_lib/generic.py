@@ -29,111 +29,36 @@ def make_library(dtype=ti.f32):
 
   @ti.dataclass
   class Gaussian2D:
-      uv        : vec2
-      uv_conic  : vec3
-      alpha   : dtype
-
-
-
-  @ti.dataclass
-  class Gaussian3D:
-      position   : vec3
-      log_scaling : vec3
-      rotation    : vec4
-      alpha_logit : dtype
-
-      @ti.func
-      def alpha(self):
-        return sigmoid(self.alpha_logit)
-
-      @ti.func
-      def scale(self):
-          return ti.math.exp(self.log_scaling)
-
+      mean      : vec2
+      axis      : vec2
+      sigma     : vec2
+      alpha     : dtype
 
   vec_g2d = ti.types.vector(struct_size(Gaussian2D), dtype=dtype)
-  vec_g3d = ti.types.vector(struct_size(Gaussian3D), dtype=dtype)
-
 
   @ti.func
-  def to_vec_g2d(uv:vec2, uv_conic:vec3, alpha:dtype) -> vec_g2d:
-    return vec_g2d(*uv, *uv_conic, alpha)
-
-  @ti.func
-  def to_vec_g3d(position:vec3, log_scaling:vec3, rotation:vec4, alpha_logit:dtype) -> vec_g3d:
-    return vec_g3d(*position, *log_scaling, *rotation, alpha_logit)
-
-
-  @ti.func
-  def unpack_vec_g3d(vec:vec_g3d) -> Gaussian3D:
-    return vec[0:3], vec[3:6], vec[6:10], vec[10]
-
-  @ti.func
-  def unpack_vec_g2d(vec:vec_g2d) -> Gaussian2D:
-    return vec[0:2], vec[2:5], vec[5]
-
-  @ti.func
-  def get_position_g3d(vec:vec_g3d) -> vec3:
-    return vec[0:3]
-
-  @ti.func
-  def get_position_g2d(vec:vec_g2d) -> vec2:
-    return vec[0:2]
-
-  @ti.func
-  def get_conic_g2d(vec:vec_g2d) -> vec3:
-    return vec[2:5]
-
-
-  @ti.func
-  def get_cov_g2d(vec:vec_g2d) -> vec3:
-    conic = get_conic_g2d(vec)
-    return inverse_cov(conic)
-
-  @ti.func
-  def from_vec_g3d(vec:vec_g3d) -> Gaussian3D:
-    return Gaussian3D(vec[0:3], vec[3:6], vec[6:10], vec[10])
+  def to_vec_g2d(uv:vec2, axis:vec2, scales:vec2, alpha:dtype) -> vec_g2d:
+    return vec_g2d(*uv, axis, *scales, alpha)
+  
 
   @ti.func
   def from_vec_g2d(vec:vec_g2d) -> Gaussian2D:
-    return Gaussian2D(vec[0:2], vec[2:5], vec[5])
-
-
-  @ti.func
-  def unpack_activate_g3d(vec:vec_g3d):
-    position, log_scaling, rotation, alpha_logit = unpack_vec_g3d(vec)
-    return position, ti.exp(log_scaling), ti.math.normalize(rotation), sigmoid(alpha_logit)
-  
-
-
+    return Gaussian2D(vec[0:2], vec[2:4], vec[4:6], vec[6])
 
   @ti.func
-  def bounding_sphere(vec:vec_g3d, gaussian_scale: ti.template()):
-    position, log_scaling = vec[0:3], vec[3:6]
-    return position, ti.exp(log_scaling).max() * gaussian_scale
+  def unpack_vec_g2d(vec:vec_g2d) -> Gaussian2D:
+    return vec[0:2], vec[2:4], vec[4:6], vec[6]
+
 
   # Taichi structs don't have static methods, but they can be added afterward
+
   Gaussian2D.vec = vec_g2d
   Gaussian2D.to_vec = to_vec_g2d
   Gaussian2D.from_vec = from_vec_g2d
   Gaussian2D.unpack = unpack_vec_g2d
 
-  Gaussian2D.get_position = get_position_g2d
-  Gaussian2D.get_conic = get_conic_g2d
-  Gaussian2D.get_cov = get_cov_g2d
 
 
-  Gaussian3D.vec = vec_g3d
-  Gaussian3D.to_vec = to_vec_g3d
-  Gaussian3D.from_vec = from_vec_g3d
-  Gaussian3D.unpack = unpack_vec_g3d
-  Gaussian3D.unpack_activate = unpack_activate_g3d
-  Gaussian3D.get_position = get_position_g3d
-  Gaussian3D.bounding_sphere = bounding_sphere
-
-
-
-  #
   # Projection related functions
   #
 
