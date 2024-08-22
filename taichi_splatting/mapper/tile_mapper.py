@@ -64,12 +64,11 @@ def tile_mapper(config:RasterConfig, use_depth16=False):
 
 
   tile_size = config.tile_size
-  grid_ops = make_grid_query(
+  grid_query = make_grid_query(
     tile_size=tile_size, 
     gaussian_scale=config.gaussian_scale, 
     tight_culling=config.tight_culling)
   
-  grid_query = grid_ops.grid_query
   
 
   @ti.kernel
@@ -208,7 +207,7 @@ def map_to_tiles(gaussians : torch.Tensor, depth:torch.Tensor,
                  ) -> Tuple[torch.Tensor, torch.Tensor]:
   """ maps guassians to tiles, sorted by depth (front to back):
     Parameters:
-     gaussians: (N, 6) torch.Tensor of packed gaussians, N is the number of gaussians
+     gaussians: (N, 7) torch.Tensor of packed gaussians, N is the number of gaussians
      depth: (N, 1)  torch.Tensor of depths (float32)
      image_size: (2, ) tuple of ints, (width, height)
      tile_config: configuration for tile mapper (tile_size etc.)
@@ -218,7 +217,7 @@ def map_to_tiles(gaussians : torch.Tensor, depth:torch.Tensor,
      tile_ranges: (M, 2) torch tensor, where M is the number of tiles, maps tile index to range of overlap indices
     """
 
-  assert gaussians.ndim == 2 and gaussians.shape[1] == 6, f"gaussians must be Nx6, got {gaussians.shape}"
+  assert gaussians.ndim == 2 and gaussians.shape[1] == Gaussian2D.vec.n, f"gaussians must be Nx{Gaussian2D.vec.n} got {gaussians.shape}"
   assert depth.ndim == 2 and depth.shape[1] == 1, f"depths must be Nx1, got {depth.shape}"
 
   mapper = tile_mapper(config, use_depth16=use_depth16)

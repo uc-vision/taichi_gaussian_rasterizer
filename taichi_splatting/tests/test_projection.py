@@ -108,7 +108,7 @@ def test_projection_grad(iters = 100):
         print(f"camera={camera}")
         raise e
 
-def main(show=False, debug=False):
+def main(debug=False):
   torch.set_printoptions(precision=8, sci_mode=False)
   ti.init(arch=ti.cpu, offline_cache=True, log_level=ti.INFO if not debug else ti.DEBUG, debug=debug)
 

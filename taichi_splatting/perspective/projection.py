@@ -150,7 +150,6 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
       ctx.depth_range = depth_range
 
       ctx.gaussian_scale = gaussian_scale
-      
       ctx.mark_non_differentiable(ctx.indexes)
 
       ctx.save_for_backward(*gaussian_tensors,
@@ -180,7 +179,7 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
 
         return (*[tensor.grad for tensor in gaussian_tensors], 
                 T_camera_world.grad, projection.grad,
-                None, None, None, None, None)
+                None, None, None)
 
   return _module_function
 
