@@ -43,14 +43,16 @@ def make_inputs(seed, device=torch.device('cuda:0')):
 
     gaussians2d, colors = [x.to(dtype=torch.float64) for x in [gaussians2d, gaussians.feature]]
 
-    def rasterize(uv, conic, alpha, colors):
-      packed = torch.cat([uv, conic, alpha], dim=-1)
+    def rasterize(mean, axis, sigma, alpha, colors):
+      packed = torch.cat([mean, axis, sigma, alpha], dim=-1)
       return rasterize_with_tiles(packed, colors, overlap_to_point=overlap_to_point, tile_overlap_ranges=tile_ranges.view(-1, 2), 
                      image_size=image_size, config=config).image
     
     return (gaussians2d[:, 0:2].requires_grad_(True), 
-            gaussians2d[:, 2:5].requires_grad_(True), 
-            gaussians2d[:, 5:6].requires_grad_(True), 
+            gaussians2d[:, 2:4].requires_grad_(True), 
+            gaussians2d[:, 4:6].requires_grad_(True), 
+
+            gaussians2d[:, 6:7].requires_grad_(True), 
             colors.requires_grad_(False)), rasterize
 
 
