@@ -100,20 +100,21 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
           if pixel_saturated:
             break
 
-          uv, uv_conic, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
-          gaussian_alpha = lib.conic_pdf(pixelf, uv, uv_conic)
+          mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
+          gaussian_alpha = lib.gaussian_pdf(pixelf, mean, axis, sigma)
+
           alpha = point_alpha * gaussian_alpha
 
             
-          # from paper: we skip any blending updates with 𝛼 < 𝜖 (we choose 𝜖 as 1
-          # 255 ) and also clamp 𝛼 with 0.99 from above.
+          # from paper: we skip any blending updates with 𝛼 < 𝜖 (configurable as alpha_threshold)
           if alpha < ti.static(config.alpha_threshold):
             continue
 
           alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
           # from paper: before a Gaussian is included in the forward rasterization
           # pass, we compute the accumulated opacity if we were to include it
-          # and stop front-to-back blending before it can exceed 0.9999.
+          # and stop front-to-back blending before it can exceed config.saturate_threshold.
+
           next_T_i = T_i * (1 - alpha)
           if next_T_i < ti.static(1 - config.saturate_threshold):
             pixel_saturated = True

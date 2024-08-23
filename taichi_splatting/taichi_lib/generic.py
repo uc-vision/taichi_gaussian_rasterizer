@@ -235,6 +235,8 @@ def make_library(dtype=ti.f32):
     extent  = ti.sqrt(v1**2 + v2**2)
     return (uv - extent), (uv + extent)
   
+  
+  
   @ti.func 
   def clamp_bounds(lower:vec2, upper:vec2, image_size:ti.math.ivec2):
     lower = ti.math.clamp(lower, 0, image_size - 1)
@@ -296,8 +298,56 @@ def make_library(dtype=ti.f32):
       return p, dp_duv, dp_dconic
 
 
+# def gaussian_pdf_with_grad(u, m, v1, s1, s2):
+#   """ Evaluate the intensity and its gradients w.r.t. the parameters
+#       2D gaussian parameterised by mean, eigenvector and two scales """
+#   d = u - m
+
+#   tx = d.dot(v1)  / s1
+#   ty = d.dot(perp(v1)) / s2
+
+#   tx2, ty2 = tx**2, ty**2
+
+#   p = exp(-0.5 * (tx2 + ty2))
+
+#   ds1_dp = p * tx2 / s1
+#   ds2_dp = p * ty2 / s2
+
+#   dv1_dp = p * (tx/s1 * -d + ty/s2 * perp(d))
+#   dm_dp = p * (tx/s1 * v1 + ty/s2 * perp(v1))
+  
+#   return p, dm_dp, ds1_dp, ds2_dp, dv1_dp
+
+  @ti.func
+  def perp(v:vec2) -> vec2:
+    return vec2(-v.y, v.x)
+
+  @ti.func
+  def gaussian_pdf(xy: vec2, mean: vec2, axis: vec2, sigma: vec2) -> dtype:
+    d = xy - mean
+
+    tx = d.dot(axis) / sigma.x
+    ty = d.dot(perp(axis)) / sigma.y
+
+    return ti.exp(-0.5 * (tx**2 + ty**2))
 
 
+  @ti.func
+  def gaussian_pdf_with_grad(xy: vec2, mean: vec2, axis: vec2, sigma: vec2):
+    d = xy - mean
+
+    tx = d.dot(axis) / sigma.x
+    ty = d.dot(perp(axis)) / sigma.y
+
+    p = ti.exp(-0.5 * (tx**2 + ty**2))
+
+    dsigma_dp = ti.vec2(tx**2, ty**2) * p / sigma
+    t_sig = ti.vec2(tx / sigma.x, ty / sigma.y)
+
+    daxis_dp = p * t_sig.x * -d + t_sig.y * perp(d)
+    dm_dp = p * t_sig.x * axis + t_sig.y * perp(axis)
+
+    return p, dm_dp, daxis_dp, dsigma_dp
 
 
   @ti.func

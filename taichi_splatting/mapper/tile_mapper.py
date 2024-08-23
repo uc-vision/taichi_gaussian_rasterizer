@@ -66,8 +66,7 @@ def tile_mapper(config:RasterConfig, use_depth16=False):
   tile_size = config.tile_size
   grid_query = make_grid_query(
     tile_size=tile_size, 
-    gaussian_scale=config.gaussian_scale, 
-    tight_culling=config.tight_culling)
+    gaussian_scale=config.gaussian_scale)
   
   
 

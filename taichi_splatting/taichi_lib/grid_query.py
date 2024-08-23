@@ -14,16 +14,15 @@ def tile_ranges(
     image_size: ti.math.ivec2,
     tile_size: ti.template()
 ):
-    max_tile = (image_size - 1) // tile_size + 1
+    max_tile = (image_size - 1) // tile_size 
 
-    min_tile_bound = ti.math.clamp(
-       ti.floor(min_bound / tile_size, ti.i32),
-       0, max_tile)
-    
-    max_tile_bound = ti.math.clamp(
-       ti.ceil(max_bound / tile_size, ti.i32),
-       0, max_tile)
 
+    min_tile_bound = ti.floor(min_bound / tile_size, ti.i32)
+    min_tile_bound = ti.max(min_tile_bound, 0)
+
+    max_tile_bound = ti.ceil(max_bound / tile_size, ti.i32) 
+    max_tile_bound = ti.min(ti.max(max_tile_bound, min_tile_bound + 1),
+                        max_tile + 1)
      
     return min_tile_bound, max_tile_bound
 
@@ -44,7 +43,7 @@ def separates_bbox(inv_basis:mat2, lower:vec2, upper:vec2) -> bool:
   return separates
 
 
-def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0, tight_culling:bool=True):
+def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0):
 
   @ti.dataclass
   class OBBGridQuery:
@@ -74,8 +73,8 @@ def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0, tight_culling:bo
   def obb_grid_query(v: Gaussian2D.vec, image_size:ivec2) -> OBBGridQuery:
       mean, axis1, sigma, _ = Gaussian2D.unpack(v)
       scale = sigma * gaussian_scale
+
       axis2 = vec2(-axis1.y, axis1.x)
-      
       min_bound, max_bound = ellipse_bounds(mean, axis1 * scale.x, axis2 * scale.y)
       
       # transform from (relative) image to ellipse space
