@@ -1,5 +1,4 @@
 
-from types import SimpleNamespace
 import taichi as ti
 from taichi.math import ivec2, vec2, mat2, vec3
 
@@ -59,7 +58,7 @@ def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0, tight_culling:bo
     @ti.func
     def test_tile(self, tile_uv: ivec2):
       lower = self.rel_min_bound + tile_uv * tile_size
-      return not separates_bbox(self.axis1, self.axis2, lower, lower + tile_size)
+      return not separates_bbox(self.inv_basis, lower, lower + tile_size)
       
     @ti.func 
     def count_tiles(self) -> ti.i32:
@@ -80,9 +79,9 @@ def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0, tight_culling:bo
       min_bound, max_bound = ellipse_bounds(mean, axis1 * scale.x, axis2 * scale.y)
       
       # transform from (relative) image to ellipse space
-      inv_basis = ti.Matrix.rows(axis1 / scale.x, axis2 / scale.y)
+      inv_basis = ti.Matrix.rows([axis1 / scale.x, axis2 / scale.y])
 
-      min_tile, max_tile = tile_ranges(min_bound, max_bound, image_size)
+      min_tile, max_tile = tile_ranges(min_bound, max_bound, image_size, tile_size)
       return OBBGridQuery(
         inv_basis = inv_basis,
         rel_min_bound = min_tile * tile_size - mean,
