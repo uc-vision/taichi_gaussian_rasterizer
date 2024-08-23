@@ -332,6 +332,27 @@ def make_library(dtype=ti.f32):
     return ti.exp(-0.5 * (tx**2 + ty**2))
 
 
+
+# def eval_intensity(u, m, v1, s1, s2):
+#   """ Evaluate the intensity and its gradients w.r.t. the parameters
+#       2D gaussian parameterised by mean, eigenvector and two scales """
+#   d = u - m
+
+#   tx = d.dot(v1)  / s1
+#   ty = d.dot(perp(v1)) / s2
+
+#   tx2, ty2 = tx**2, ty**2
+
+#   p = exp(-0.5 * (tx2 + ty2))
+
+#   ds1_dp = p * tx2 / s1
+#   ds2_dp = p * ty2 / s2
+
+#   dv1_dp = p * (tx/s1 * -d + ty/s2 * perp(d))
+#   dm_dp = p * (tx/s1 * v1 + ty/s2 * perp(v1))
+  
+#   return p, dm_dp, ds1_dp, ds2_dp, dv1_dp
+
   @ti.func
   def gaussian_pdf_with_grad(xy: vec2, mean: vec2, axis: vec2, sigma: vec2):
     d = xy - mean
@@ -339,13 +360,14 @@ def make_library(dtype=ti.f32):
     tx = d.dot(axis) / sigma.x
     ty = d.dot(perp(axis)) / sigma.y
 
-    p = ti.exp(-0.5 * (tx**2 + ty**2))
+    tx2, ty2 = tx**2, ty**2
+    p = ti.exp(-0.5 * (tx2 + ty2))
 
-    dsigma_dp = ti.vec2(tx**2, ty**2) * p / sigma
-    t_sig = ti.vec2(tx / sigma.x, ty / sigma.y)
+    dsigma_dp = vec2(tx2, ty2) * p / sigma
+    tx_s, ty_s = tx / sigma.x, ty / sigma.y
 
-    daxis_dp = p * t_sig.x * -d + t_sig.y * perp(d)
-    dm_dp = p * t_sig.x * axis + t_sig.y * perp(axis)
+    daxis_dp = p * tx_s * -d + ty_s * perp(d)
+    dm_dp = p * tx_s * axis + ty_s * perp(axis)
 
     return p, dm_dp, daxis_dp, dsigma_dp
 

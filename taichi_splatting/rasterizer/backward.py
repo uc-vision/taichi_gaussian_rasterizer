@@ -163,7 +163,7 @@ def backward_kernel(config: RasterConfig,
         for in_group_idx in range(point_group_size):
           point_index = end_offset - (group_offset_base + in_group_idx)
 
-          uv, uv_conic, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
+          mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
 
           grad_point = Gaussian2D.vec(0.0)
           grad_feature = feature_vec(0.0)
@@ -173,7 +173,7 @@ def backward_kernel(config: RasterConfig,
           for i, offset in ti.static(pixel_tile):
             pixel = ti.cast(pixel_base, dtype) + vec2(offset) + 0.5
 
-            gaussian_alpha, dp_dmean, dp_dconic = lib.conic_pdf_with_grad(pixel, uv, uv_conic)
+            gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = lib.gaussian_pdf_with_grad(pixel, mean, axis, sigma)
             
             alpha = point_alpha * gaussian_alpha
             pixel_grad = (alpha >= ti.static(config.alpha_threshold)) and (point_index <= last_point_pixel[i])      
@@ -197,8 +197,9 @@ def backward_kernel(config: RasterConfig,
               alpha_grad: dtype = alpha_grad_from_feature.sum()
 
               grad_point += alpha_grad * Gaussian2D.to_vec(
-                  point_alpha * dp_dmean, 
-                  point_alpha * dp_dconic,
+                  point_alpha * dp_dmean,
+                  point_alpha * dp_daxis,
+                  point_alpha * dp_dsigma,                 
                   gaussian_alpha)
 
 
