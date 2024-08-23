@@ -107,8 +107,8 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
 
       sigma, v1, _ = lib.eig(cov)
 
-      depth[idx] = z
-      points[idx] = lib.Gaussian2D.to_vec(
+      depth[i] = z
+      points[i] = lib.Gaussian2D.to_vec(
           mean=mean,
           axis = v1,
           sigma = sigma,
@@ -168,7 +168,8 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
       with restore_grad(*gaussian_tensors,  projection, T_camera_world, points, depth):
         points.grad = dpoints.contiguous()
         depth.grad = ddepth.contiguous()
-        
+
+      
         indexed_project_kernel.grad(
           *gaussian_tensors,  
           ctx.indexes,

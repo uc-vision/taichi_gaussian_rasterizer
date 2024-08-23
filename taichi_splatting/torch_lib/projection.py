@@ -15,6 +15,31 @@ def radii_from_cov(uv_cov:torch.Tensor):
   return torch.sqrt(max_eig_sq)
 
 
+
+def eig(cov: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+  """ Compute the eigenvalues and eigenvectors of a 2x2 covariance matrix
+  """
+  x, y, z = cov[..., 0], cov[..., 1], cov[..., 2]
+  tr = x + z
+  det = x * z - y * y
+
+  gap = tr**2 - 4 * det
+  sqrt_gap = torch.sqrt(torch.clamp_min(gap, 0))
+
+  lam1 = (tr + sqrt_gap) * 0.5
+  lam2 = (tr - sqrt_gap) * 0.5
+
+  v1 = F.normalize(torch.stack([cov[..., 0] - lam2, cov[..., 1]], -1), dim=-1)
+  v2 = torch.stack([-v1[..., 1], v1[..., 0]], -1)
+
+  return torch.stack([lam1, lam2], -1).sqrt(), v1, v2
+
+
+def ellipse_bounds(mean: torch.Tensor, v1: torch.Tensor, v2: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+  extent = torch.sqrt(v1**2 + v2**2)
+  return mean - extent, mean + extent
+
+
 def inverse_sigmoid(x:torch.Tensor):
   return torch.log(x / (1 - x))
 
@@ -137,20 +162,24 @@ def apply(position, log_scaling, rotation, alpha_logit,
   point_in_camera = transform44(T_camera_world,  make_homog(position))[:, :3]
   image_size = torch.tensor(image_size, dtype=position.dtype, device=position.device)
 
-  uv, z, J = project_with_jacobian(projection, point_in_camera, image_size, clamp_margin)
+  mean, z, J = project_with_jacobian(projection, point_in_camera, image_size, clamp_margin)
 
   cov_in_camera = covariance_in_camera(T_camera_world, F.normalize(rotation, dim=-1), log_scaling.exp())
-  uv_cov = project_perspective_gaussian(J, cov_in_camera)
+  cov = project_perspective_gaussian(J, cov_in_camera)
+  cov += torch.eye(2, device=cov.device, dtype=cov.dtype) * blur_cov
+  
+  sigma, v1, v2 = eig(cov)
+  scale = sigma * gaussian_scale
+  bounds = ellipse_bounds(mean, v1 * scale[:, 0], v2 * scale[:, 1])
 
-  radius = (radii_from_cov(uv_cov) * gaussian_scale).unsqueeze(1)
-
+    
   in_view = ((z > depth_range[0]) & (z < depth_range[1]) 
-          &  (uv > -radius).all(1) 
+          &  
           &  (uv < (image_size.unsqueeze(0) + radius)).all(1)
   )
 
-  uv_cov += torch.eye(2, device=uv_cov.device, dtype=uv_cov.dtype) * blur_cov
-  points = torch.concatenate([uv[:, :2], cov_to_conic(uv_cov), alpha_logit.sigmoid()], axis=-1)
+  
+  points = torch.concatenate([uv[:, :2], cov_to_conic(cov), alpha_logit.sigmoid()], axis=-1)
 
   vis_idx = in_view.nonzero(as_tuple=True)[0]
 
