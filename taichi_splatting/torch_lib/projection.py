@@ -170,17 +170,16 @@ def apply(position, log_scaling, rotation, alpha_logit,
   
   sigma, v1, v2 = eig(cov)
   scale = sigma * gaussian_scale
-  bounds = ellipse_bounds(mean, v1 * scale[:, 0], v2 * scale[:, 1])
+  lower, upper = ellipse_bounds(mean, v1 * scale[:, 0], v2 * scale[:, 1])
 
     
   in_view = ((z > depth_range[0]) & (z < depth_range[1]) 
-          &  
-          &  (uv < (image_size.unsqueeze(0) + radius)).all(1)
+          & (upper > 0).all(1)
+          & (lower < image_size.unsqueeze(0)).all(1)
   )
 
   
-  points = torch.concatenate([uv[:, :2], cov_to_conic(cov), alpha_logit.sigmoid()], axis=-1)
-
+  points = torch.concatenate([mean[:, :2], v1, sigma, alpha_logit.sigmoid()], axis=-1)
   vis_idx = in_view.nonzero(as_tuple=True)[0]
 
   return points[in_view], z[in_view].unsqueeze(1), vis_idx

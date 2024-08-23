@@ -61,7 +61,7 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
       lower, upper = lib.ellipse_bounds(mean, v1 * sx, v2 * sy)
 
       in_view = ((z > depth_range[0]) and (z < depth_range[1]) and 
-                 (upper >= 0).all() and (lower < image_size - 1).all())
+                 (upper > 0).all() and (lower < image_size).all())
                   
       if not in_view:
         depth[idx] = 0.
