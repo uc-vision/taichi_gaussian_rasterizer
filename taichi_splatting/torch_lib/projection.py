@@ -153,7 +153,7 @@ def unpack_activate(vec: torch.Tensor
 def apply(position, log_scaling, rotation, alpha_logit, 
           T_camera_world,
           projection, image_size, depth_range, 
-          gaussian_scale=3.0, blur_cov=0.3, clamp_margin=0.15):
+          gaussian_scale=3.0, blur_cov=0.0, clamp_margin=0.15):
   
 
   T_camera_world = T_camera_world.squeeze(0)

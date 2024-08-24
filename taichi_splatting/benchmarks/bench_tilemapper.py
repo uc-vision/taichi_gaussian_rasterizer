@@ -22,7 +22,6 @@ def parse_args(args=None):
 
   parser.add_argument('--seed', type=int, default=0)
   parser.add_argument('--iters', type=int, default=1000)
-  parser.add_argument('--no_tight_culling', action='store_true')
   parser.add_argument('--debug', action='store_true')
   parser.add_argument('--depth16', action='store_true')
 
@@ -41,7 +40,7 @@ def bench_rasterizer(args):
   depth_range = (0.1, 100.)
   gaussians = random_2d_gaussians(args.n, args.image_size, 
           scale_factor=args.scale_factor, alpha_range=(0.5, 1.0), depth_range=depth_range).to(args.device)
-  config = RasterConfig(tile_size=args.tile_size, tight_culling=not args.no_tight_culling)
+  config = RasterConfig(tile_size=args.tile_size)
   
   gaussians2d = project_gaussians2d(gaussians)
 

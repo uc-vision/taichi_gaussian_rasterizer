@@ -20,12 +20,12 @@ class RasterConfig:
 
   # clamp position to within this margin of the image for affine jaocbian
   clamp_margin: float = 0.15  
+  
+  # Use anti-aliasing implementation
+  antialias: bool = True  
 
   # blur covariance matrix by this factor
-  blur_cov: float = 0.3
-  
-  # cull to an oriented box, otherwise an axis aligned bounding box
-  tight_culling: bool = True  
+  blur_cov: float = 0.0
 
   clamp_max_alpha: float = 0.99
   alpha_threshold: float = 1. / 255.

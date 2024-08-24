@@ -9,7 +9,7 @@ import taichi as ti
 
 import torch
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
-from taichi_splatting.misc.renderer2d import project_gaussians2d, sample_gaussians, uniform_split_gaussians2d
+from taichi_splatting.misc.renderer2d import project_gaussians2d, uniform_split_gaussians2d
 
 from taichi_splatting.optim.sparse_adam import SparseAdam
 from taichi_splatting.rasterizer.function import rasterize
@@ -32,10 +32,12 @@ def parse_args():
 
   parser.add_argument('--n', type=int, default=1000)
   parser.add_argument('--target', type=int, default=None)
-  parser.add_argument('--max_epoch', type=int, default=100)
+  parser.add_argument('--max_epoch', type=int, default=200)
   parser.add_argument('--prune_rate', type=float, default=0.1, help='Rate of pruning proportional to number of points')
   parser.add_argument('--opacity_reg', type=float, default=0.001)
   parser.add_argument('--scale_reg', type=float, default=0.00001)
+
+  parser.add_argument('--no_antialias', action='store_true')
 
   parser.add_argument('--noise_scale', type=float, default=0.0)
 
@@ -45,7 +47,7 @@ def parse_args():
   parser.add_argument('--show', action='store_true')
 
   parser.add_argument('--profile', action='store_true')
-  parser.add_argument('--epoch_size', type=int, default=20, help='Number of iterations per measurement/profiling')
+  parser.add_argument('--epoch_size', type=int, default=10, help='Number of iterations per measurement/profiling')
   
   args = parser.parse_args()
 
@@ -80,7 +82,7 @@ def train_epoch(opt, gaussians, ref_image,
         opacity_reg=0.0,
         scale_reg=0.0,
         noise_threshold=0.05,
-        noise_lr=100.0, 
+        noise_lr=0.0, 
         k = 100):
     
     h, w = ref_image.shape[:2]
@@ -124,7 +126,8 @@ def train_epoch(opt, gaussians, ref_image,
         opacity = torch.sigmoid(gaussians.alpha_logit)
         op_factor = torch.sigmoid(k * (noise_threshold - opacity)).unsqueeze(1)
 
-        noise = sample_gaussians(gaussians) * op_factor * noise_lr
+        # noise = sample_gaussians(gaussians) * op_factor * noise_lr
+        noise = torch.randn_like(gaussians.position) * op_factor * noise_lr
         gaussians.position += noise
 
       prune_cost, densify_score = split_heuristics.unbind(dim=1)
@@ -159,13 +162,13 @@ def main():
   torch.manual_seed(cmd_args.seed)
   lr_range = (0.5, 0.1)
 
-  gaussians = random_2d_gaussians(cmd_args.n, (w, h), scale_factor=0.1).to(torch.device('cuda:0'))
+  gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(1.0, 1.0), scale_factor=0.1).to(torch.device('cuda:0'))
   
   parameter_groups = dict(
     position=dict(lr=lr_range[0]),
     log_scaling=dict(lr=0.025),
     rotation=dict(lr=0.005),
-    alpha_logit=dict(lr=0.05),
+    # alpha_logit=dict(lr=0.05),
     feature=dict(lr=0.01)
   )
 
@@ -188,6 +191,7 @@ def main():
   config = RasterConfig(compute_split_heuristics=True,
                         tile_size=cmd_args.tile_size, 
                         gaussian_scale=3.0, 
+                        antialias=not cmd_args.no_antialias,
                         pixel_stride=cmd_args.pixel_tile or (2, 2))
 
   @beartype

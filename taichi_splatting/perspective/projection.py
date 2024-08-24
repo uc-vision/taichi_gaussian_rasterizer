@@ -22,7 +22,7 @@ warnings.filterwarnings('ignore', '(.*)that is not a leaf Tensor is being access
 
 
 @cache
-def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur_cov=0.3):
+def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur_cov=0.0):
   dtype = torch_taichi[torch_dtype]
   lib = get_library(dtype)
 
@@ -194,7 +194,8 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
           depth_range:Tuple[float, float],
 
           gaussian_scale:float=3.0,
-          blur_cov:float=0.3,
+          blur_cov:float=0.0,
+          
           clamp_margin:float=0.15
 
           ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

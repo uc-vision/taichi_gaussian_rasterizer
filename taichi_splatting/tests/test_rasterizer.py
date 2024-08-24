@@ -56,8 +56,6 @@ def make_inputs(seed, device=torch.device('cuda:0')):
             colors.requires_grad_(False)), rasterize
 
 
-
-
 def test_rasterizer_gradcheck(show = False, iters = 100, device=torch.device('cuda:0')):
   torch.random.manual_seed(0)
   seeds = torch.randint(0, 1000, (iters, ), device=device)

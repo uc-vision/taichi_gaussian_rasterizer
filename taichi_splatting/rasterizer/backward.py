@@ -42,6 +42,10 @@ def backward_kernel(config: RasterConfig,
   thread_vector = ti.types.vector(thread_pixels, dtype=dtype)
   thread_index = ti.types.vector(thread_pixels, dtype=ti.i32)
 
+
+  gaussian_pdf = lib.gaussian_pdf_antialias_with_grad if config.antialias else lib.gaussian_pdf_with_grad
+
+
   @ti.kernel
   def _backward_kernel(
       points: ti.types.ndarray(Gaussian2D.vec, ndim=1),  # (M, 6)
@@ -173,7 +177,7 @@ def backward_kernel(config: RasterConfig,
           for i, offset in ti.static(pixel_tile):
             pixel = ti.cast(pixel_base, dtype) + vec2(offset) + 0.5
 
-            gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = lib.gaussian_pdf_with_grad(pixel, mean, axis, sigma)
+            gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = gaussian_pdf(pixel, mean, axis, sigma)
             
             alpha = point_alpha * gaussian_alpha
             pixel_grad = (alpha >= ti.static(config.alpha_threshold)) and (point_index <= last_point_pixel[i])      
