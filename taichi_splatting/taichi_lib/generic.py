@@ -337,6 +337,59 @@ def make_library(dtype=ti.f32):
       return 1 / (1 + ti.exp(-1.6 * z - 0.07 * z**3))
 
   @ti.func
+  def S_sig_grad(s, x, sigma=1):
+      """ Approximate gaussian cdf and derivatives dS/dx, dS/dsigma """
+      z = x / sigma
+      
+      ds_dx = (1.6 + 0.21 * z**2) * s * (1 - s)
+      dSig_dx = ds_dx / sigma
+
+      return dSig_dx, dSig_dx * -z
+
+
+
+  @ti.dataclass
+  class GausianPdfAA:
+    sigma : vec2
+    axis: vec2
+    
+
+    d : vec2
+    t : vec2
+
+    Sx : vec2
+    Sy : vec2
+
+    i: vec2
+    p : dtype
+
+    @ti.func
+    def gradients(self):
+      tx, ty = self.t
+      sx, sy = self.sigma
+      ix, iy = self.i
+      
+      dSx1, dSx1_sig = S_sig_grad(self.Sx[0], tx + 0.5, sx)
+      dSx2, dSx2_sig = S_sig_grad(self.Sx[1], tx - 0.5, sx)
+
+      dSy1, dSy1_sig = S_sig_grad(self.Sy[0], ty + 0.5, sy)
+      dSy2, dSy2_sig = S_sig_grad(self.Sy[1], ty - 0.5, sy)
+
+      dSx = iy  * sx * (dSx1 - dSx2)
+      dSy = ix  * sy * (dSy1 - dSy2)
+
+      tau = 2 * ti.math.pi
+      di_dmean = tau * (dSx * -self.axis  + dSy * -perp(self.axis))
+
+      di_dsigma = vec2(tau * iy * (self.Sx[0] - self.Sx[1] +  (dSx1_sig -  dSx2_sig) * sx),
+                      tau * ix * (self.Sy[0] - self.Sy[1] +  (dSy1_sig -  dSy2_sig) * sy))
+
+      # gradient on first eigenvector (v1) + gradient on second eigenvector (v2 = perp(v1))
+      di_daxis = tau * (dSx * self.d + dSy * -perp(self.d)) 
+      return di_dmean, di_daxis, di_dsigma
+
+
+  @ti.func
   def gaussian_pdf_antialias(xy: vec2, mean: vec2, axis: vec2, sigma: vec2):
     d = xy - mean
     sx, sy = sigma
@@ -346,55 +399,62 @@ def make_library(dtype=ti.f32):
 
     Sx1, Sx2 = S_sig(tx + 0.5, sx), S_sig(tx - 0.5, sx)
     Sy1, Sy2 = S_sig(ty + 0.5, sy), S_sig(ty - 0.5, sy)
-
-    return 2 * ti.math.pi * sx * (Sx1 - Sx2) * sy * (Sy1 - Sy2)
-  
-  @ti.func
-  def S_sig_grad(x, sigma=1):
-      """ Approximate gaussian cdf and derivatives dS/dx, dS/dsigma """
-      z = x / sigma
-      s = 1 / (1 + ti.exp(-1.6 * z - 0.07 * z**3))
-      
-      ds_dx = (1.6 + 0.21 * z**2) * s * (1 - s)
-      dSig_dx = ds_dx / sigma
-
-      return s, dSig_dx, dSig_dx * -z
-
-  @ti.func
-  def gaussian_pdf_antialias_with_grad(xy:vec2, mean:vec2, axis:vec2, sigma:vec2):
-    sx, sy = sigma
-    d = xy - mean # relative position of pixel centre to gaussian mean
-
-    # pixel centre in gaussian coordinate system (\tilde{u} in paper)
-    tx = d.dot(axis)
-    ty = d.dot(perp(axis))
-
-    Sx1, dSx1, dSx1_sig = S_sig_grad(tx + 0.5, sx)
-    Sx2, dSx2, dSx2_sig = S_sig_grad(tx - 0.5, sx)
-
-    Sy1, dSy1, dSy1_sig = S_sig_grad(ty + 0.5, sy)
-    Sy2, dSy2, dSy2_sig = S_sig_grad(ty - 0.5, sy)
-
-    # forward pass, computation of intensity
+    
     ix = sx * (Sx1 - Sx2)
-    iy = sy * (Sy1 - Sy2)
+    iy = sy * (Sy1 - Sy2) 
 
-    tau = 2 * ti.math.pi
-    i_2d = tau * ix * iy
+    p = 2 * ti.math.pi * ix * iy
+    return GausianPdfAA(sigma=sigma, axis=axis, 
+                        d=d, t=vec2(tx, ty), sx=vec2(Sx1, Sx2), sy=(Sy1, Sy2), 
+                        i=vec2(ix, iy), p=p)
+  
 
-    # backward pass, computation of gradients of intensity w.r.t. parameters
-    dSx = iy  * sx * (dSx1 - dSx2)
-    dSy = ix  * sy * (dSy1 - dSy2)
+  # @ti.func
+  # def S_sig_grad(x, sigma=1):
+  #     """ Approximate gaussian cdf and derivatives dS/dx, dS/dsigma """
+  #     z = x / sigma
+  #     s = 1 / (1 + ti.exp(-1.6 * z - 0.07 * z**3))
+      
+  #     ds_dx = (1.6 + 0.21 * z**2) * s * (1 - s)
+  #     dSig_dx = ds_dx / sigma
 
-    di_dmean = tau * (dSx * -axis  + dSy * -perp(axis))
+  #     return s, dSig_dx, dSig_dx * -z
 
-    di_dsigma = vec2(tau * iy * (Sx1 - Sx2 +  (dSx1_sig -  dSx2_sig) * sx),
-                     tau * ix * (Sy1 - Sy2 +  (dSy1_sig -  dSy2_sig) * sy))
+  # @ti.func
+  # def gaussian_pdf_antialias_with_grad(xy:vec2, mean:vec2, axis:vec2, sigma:vec2):
+  #   sx, sy = sigma
+  #   d = xy - mean # relative position of pixel centre to gaussian mean
 
-    # gradient on first eigenvector (v1) + gradient on second eigenvector (v2 = perp(v1))
-    di_daxis = tau * (dSx * d + dSy * -perp(d)) 
+  #   # pixel centre in gaussian coordinate system (\tilde{u} in paper)
+  #   tx = d.dot(axis)
+  #   ty = d.dot(perp(axis))
 
-    return i_2d, di_dmean, di_daxis, di_dsigma
+  #   Sx1, dSx1, dSx1_sig = S_sig_grad(tx + 0.5, sx)
+  #   Sx2, dSx2, dSx2_sig = S_sig_grad(tx - 0.5, sx)
+
+  #   Sy1, dSy1, dSy1_sig = S_sig_grad(ty + 0.5, sy)
+  #   Sy2, dSy2, dSy2_sig = S_sig_grad(ty - 0.5, sy)
+
+  #   # forward pass, computation of intensity
+  #   ix = sx * (Sx1 - Sx2)
+  #   iy = sy * (Sy1 - Sy2)
+
+  #   tau = 2 * ti.math.pi
+  #   i_2d = tau * ix * iy
+
+  #   # backward pass, computation of gradients of intensity w.r.t. parameters
+  #   dSx = iy  * sx * (dSx1 - dSx2)
+  #   dSy = ix  * sy * (dSy1 - dSy2)
+
+  #   di_dmean = tau * (dSx * -axis  + dSy * -perp(axis))
+
+  #   di_dsigma = vec2(tau * iy * (Sx1 - Sx2 +  (dSx1_sig -  dSx2_sig) * sx),
+  #                    tau * ix * (Sy1 - Sy2 +  (dSy1_sig -  dSy2_sig) * sy))
+
+  #   # gradient on first eigenvector (v1) + gradient on second eigenvector (v2 = perp(v1))
+  #   di_daxis = tau * (dSx * d + dSy * -perp(d)) 
+
+  #   return i_2d, di_dmean, di_daxis, di_dsigma
 
 
   @ti.func

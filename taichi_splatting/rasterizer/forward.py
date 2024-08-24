@@ -103,7 +103,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
             break
 
           mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
-          gaussian_alpha = gaussian_pdf(pixelf, mean, axis, sigma)
+          gaussian_alpha = gaussian_pdf(pixelf, mean, axis, sigma).p
 
           alpha = point_alpha * gaussian_alpha
 
