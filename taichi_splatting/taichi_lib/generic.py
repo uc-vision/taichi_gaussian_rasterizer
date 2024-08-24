@@ -301,33 +301,64 @@ def make_library(dtype=ti.f32):
   def perp(v:vec2) -> vec2:
     return vec2(-v.y, v.x)
 
+  @ti.dataclass
+  class GausianPdf:
+    sigma : vec2
+    axis: vec2
+    
+    d : vec2
+    t : vec2
+
+    p : dtype
+
+    @ti.func
+    def gradients(self):
+      d = self.d
+      sx, sy = self.sigma
+
+      tx = d.dot(self.axis) / sx
+      ty = d.dot(perp(self.axis)) / sy
+
+      tx2, ty2 = tx**2, ty**2
+      p = ti.exp(-0.5 * (tx2 + ty2))
+
+      dp_dsigma = vec2(tx2, ty2) * p / self.sigma
+      tx_s, ty_s = tx / sx, ty / sy
+
+      dp_daxis = p * (tx_s * -d + ty_s * perp(d))
+      dp_dmean = p * (tx_s * self.axis + ty_s * perp(self.axis))
+
+      return dp_dmean, dp_daxis, dp_dsigma
+
+
   @ti.func
-  def gaussian_pdf(xy: vec2, mean: vec2, axis: vec2, sigma: vec2) -> dtype:
+  def gaussian_pdf(xy: vec2, mean: vec2, axis: vec2, sigma: vec2) -> GausianPdf:
     d = xy - mean
 
     tx = d.dot(axis) / sigma.x
     ty = d.dot(perp(axis)) / sigma.y
 
-    return ti.exp(-0.5 * (tx**2 + ty**2))
+    p = ti.exp(-0.5 * (tx**2 + ty**2))
+    return GausianPdf(sigma=sigma, axis=axis, d=d, t=vec2(tx, ty), p=p)
 
 
-  @ti.func
-  def gaussian_pdf_with_grad(xy: vec2, mean: vec2, axis: vec2, sigma: vec2):
-    d = xy - mean
+  # @ti.func
+  # def gaussian_pdf_with_grad(xy: vec2, mean: vec2, axis: vec2, sigma: vec2):
+  #   d = xy - mean
 
-    tx = d.dot(axis) / sigma.x
-    ty = d.dot(perp(axis)) / sigma.y
+  #   tx = d.dot(axis) / sigma.x
+  #   ty = d.dot(perp(axis)) / sigma.y
 
-    tx2, ty2 = tx**2, ty**2
-    p = ti.exp(-0.5 * (tx2 + ty2))
+  #   tx2, ty2 = tx**2, ty**2
+  #   p = ti.exp(-0.5 * (tx2 + ty2))
 
-    dp_dsigma = vec2(tx2, ty2) * p / sigma
-    tx_s, ty_s = tx / sigma.x, ty / sigma.y
+  #   dp_dsigma = vec2(tx2, ty2) * p / sigma
+  #   tx_s, ty_s = tx / sigma.x, ty / sigma.y
 
-    dp_daxis = p * (tx_s * -d + ty_s * perp(d))
-    dp_dmean = p * (tx_s * axis + ty_s * perp(axis))
+  #   dp_daxis = p * (tx_s * -d + ty_s * perp(d))
+  #   dp_dmean = p * (tx_s * axis + ty_s * perp(axis))
 
-    return p, dp_dmean, dp_daxis, dp_dsigma
+  #   return p, dp_dmean, dp_daxis, dp_dsigma
   
 
   @ti.func
