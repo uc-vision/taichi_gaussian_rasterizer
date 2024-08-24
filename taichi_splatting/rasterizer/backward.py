@@ -175,9 +175,9 @@ def backward_kernel(config: RasterConfig,
 
           has_grad = False
           for i, offset in ti.static(pixel_tile):
-            pixel = ti.cast(pixel_base, dtype) + vec2(offset) + 0.5
+            pixelf = ti.cast(pixel_base, dtype) + vec2(offset) + 0.5
 
-            pdf = gaussian_pdf(pixel, mean, axis, sigma)
+            pdf = gaussian_pdf(pixelf, mean, axis, sigma)
             
             alpha = point_alpha * pdf.p
             pixel_grad = (alpha >= ti.static(config.alpha_threshold)) and (point_index <= last_point_pixel[i])      
@@ -200,19 +200,19 @@ def backward_kernel(config: RasterConfig,
               w_i[i, :] += feature * weight
               alpha_grad: dtype = alpha_grad_from_feature.sum()
 
-              dp_dmean, dp_daxis, dp_dsigma = pdf.gradients()
-              grad_point += alpha_grad * Gaussian2D.to_vec(
-                  point_alpha * dp_dmean,
-                  point_alpha * dp_daxis,
-                  point_alpha * dp_dsigma,                 
-                  pdf.p)
+              if ti.static(points_requires_grad or config.compute_split_heuristics):
+                dp_dmean, dp_daxis, dp_dsigma = pdf.gradients()
+                grad_point += alpha_grad * Gaussian2D.to_vec(
+                    point_alpha * dp_dmean,
+                    point_alpha * dp_daxis,
+                    point_alpha * dp_dsigma,                 
+                    pdf.p)
 
-
-              if ti.static(config.compute_split_heuristics):
-                contribution += vec2(
-                  (feature_diff**2).sum() * weight,
-                  ti.abs(alpha_grad * point_alpha * dp_dmean).sum()
-                )
+                if ti.static(config.compute_split_heuristics):
+                  contribution += vec2(
+                    (feature_diff**2).sum() * weight,
+                    ti.abs(alpha_grad * point_alpha * dp_dmean).sum()
+                  )
 
           if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(has_grad)):
 
