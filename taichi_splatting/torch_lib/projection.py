@@ -40,6 +40,7 @@ def ellipse_bounds(mean: torch.Tensor, v1: torch.Tensor, v2: torch.Tensor) -> Tu
   return mean - extent, mean + extent
 
 
+
 def inverse_sigmoid(x:torch.Tensor):
   return torch.log(x / (1 - x))
 

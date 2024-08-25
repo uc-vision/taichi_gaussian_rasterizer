@@ -24,14 +24,17 @@ def timed_benchmark(name, f, iters=100, warmup=10):
   for _ in range(warmup):
     f()
 
-  start = time.time()
+
+  start, end = [torch.cuda.Event(enable_timing=True) for _ in range(2)]
+  start.record()
   for _ in tqdm(range(iters), desc=f"{name}"):
     f()
 
+  end.record()
   torch.cuda.synchronize()
-  end = time.time()
 
-  print(f'{name}  {iters} iterations: {end - start:.3f}s at {iters / (end - start):.1f} iters/sec')
+  elapsed = start.elapsed_time(end) / 1000.
+  print(f'{name}  {iters} iterations in {elapsed:.3f}s at {iters / elapsed:.1f} iters/sec')
 
 
 def benchmarked(name, f, iters=100, warmup=10, profile: bool = False):

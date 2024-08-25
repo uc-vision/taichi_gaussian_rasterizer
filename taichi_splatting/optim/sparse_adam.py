@@ -40,7 +40,6 @@ def adam_kernel(betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, use_point_lr=Fa
         avg_sq = lerp(b2, exp_avg_sq[idx, j], g * g)
 
         lr = global_lr * lr_idx * (mask_lr[j] if ti.static(use_mask_lr) else 1.0)
-          
         param[idx, j] -= lr * avg / (ti.sqrt(avg_sq) + eps)
 
         exp_avg[idx, j] = avg
@@ -115,5 +114,6 @@ class SparseAdam(torch.optim.Optimizer):
       else:
         mask_lr = torch.empty((0,), device=param.device, dtype=torch.float32)
           
-      kernel(param, grad, exp_avg, exp_avg_sq, visible_indexes, point_lr=point_lr, mask_lr=mask_lr, global_lr=group["lr"])
+      kernel(param, grad, exp_avg, exp_avg_sq, visible_indexes, 
+             point_lr=point_lr, mask_lr=mask_lr, global_lr=group["lr"])
 

@@ -235,7 +235,8 @@ def make_library(dtype=ti.f32):
     extent  = ti.sqrt(v1**2 + v2**2)
     return (uv - extent), (uv + extent)
   
-  
+
+
   
   @ti.func 
   def clamp_bounds(lower:vec2, upper:vec2, image_size:ti.math.ivec2):

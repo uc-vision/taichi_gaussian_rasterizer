@@ -160,10 +160,13 @@ def tile_mapper(config:RasterConfig, use_depth16=False):
   def generate_tile_overlaps(gaussians, image_size):
     overlap_counts = torch.empty( (gaussians.shape[0], ), dtype=torch.int32, device=gaussians.device)
 
-    tile_overlaps_kernel(gaussians, ivec2(image_size), overlap_counts)
+    if gaussians.shape[0] > 0:
+      tile_overlaps_kernel(gaussians, ivec2(image_size), overlap_counts)
 
-    cum_overlap_counts, total_overlap = cuda_lib.full_cumsum(overlap_counts)
-    return cum_overlap_counts[:-1], total_overlap
+      cum_overlap_counts, total_overlap = cuda_lib.full_cumsum(overlap_counts)
+      return cum_overlap_counts[:-1], total_overlap
+    else:
+      return torch.empty((0, ), dtype=torch.int32, device=gaussians.device), 0
 
   @beartype
   def f(gaussians : torch.Tensor, depths:torch.Tensor, image_size:Tuple[Integral, Integral]):

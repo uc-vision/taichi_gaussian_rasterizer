@@ -7,7 +7,6 @@ from beartype.typing import Optional, Tuple
 import torch
 
 from taichi_splatting.data_types import Gaussians3D
-from taichi_splatting.misc.radius import compute_radius
 from taichi_splatting.rasterizer import rasterize, RasterConfig
 from taichi_splatting.spherical_harmonics import  evaluate_sh_at
 
@@ -24,7 +23,6 @@ class Rendering:
   depth and depth var are optional, as they are only computed if render_depth=True
   split_heuristics is computed in the backward pass if compute_split_heuristics=True
 
-  radii is computed in the backward pass if compute_radii=True
   """
   image: torch.Tensor        # (H, W, C) - rendered image, C channels of features
   image_weight: torch.Tensor # (H, W, 1) - weight of each pixel (total alpha)
@@ -34,12 +32,13 @@ class Rendering:
   point_depth: torch.Tensor  # (N, 1) - depth of each point
 
   split_heuristics: Optional[torch.Tensor] = None  # (N, 2) - split and prune heuristic
-  radii : Optional[torch.Tensor] = None  # (N, 1) - radius of each point
-
   camera : CameraParams
+  config: RasterConfig
 
   depth: Optional[torch.Tensor] = None      # (H, W)    - depth map 
   depth_var: Optional[torch.Tensor] = None  # (H, W) - depth variance map
+
+  gaussians2d: Optional[torch.Tensor] = None     # (N, 7) - 2D gaussians in view
 
   @cached_property
   def ndc_depth(self) -> torch.Tensor:
@@ -53,6 +52,22 @@ class Rendering:
   @property
   def prune_cost(self) -> torch.Tensor:
     return self.split_heuristics[:, 1]
+  
+  
+  @property
+  def scale(self):
+    return self.gaussians2d[:, 4:6] * self.config.gaussian_scale
+  
+  @property
+  @torch.compile
+  def area(self):
+    return self.scale[:, 0] * self.scale[:, 1]
+
+  @property
+  def radii(self):
+    return self.scale.max(dim=1).values
+  
+  
 
   @cached_property
   def visible_mask(self) -> torch.Tensor:
@@ -80,7 +95,6 @@ def render_gaussians(
   config:RasterConfig = RasterConfig(),      
   use_sh:bool = False,      
   render_depth:bool = False, 
-  compute_radii:bool = False,
   use_depth16:bool = False,
 ) -> Rendering:
   """
@@ -112,7 +126,7 @@ def render_gaussians(
 
 
   return render_projected(indexes, gaussians2d, features, depths, camera_params, config, 
-                   render_depth=render_depth, use_depth16=use_depth16,  compute_radii=compute_radii)
+                   render_depth=render_depth, use_depth16=use_depth16)
 
 
 @torch.compile
@@ -129,7 +143,7 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
       features:torch.Tensor, depths:torch.Tensor, 
       camera_params: CameraParams, config:RasterConfig,      
 
-      render_depth:bool = False,  use_depth16:bool = False, use_ndc_depth:bool = False, compute_radii:bool = False):
+      render_depth:bool = False,  use_depth16:bool = False, use_ndc_depth:bool = False):
 
   ndc_depths = ndc_depth(depths, camera_params.near_plane, camera_params.far_plane)
 
@@ -150,7 +164,6 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
     feature_image = feature_image[..., 2:]
 
   heuristics = raster.point_split_heuristics if config.compute_split_heuristics else None
-  radii = compute_radius(gaussians2d, config.gaussian_scale) if compute_radii else None
 
   return Rendering(image=feature_image, 
                   image_weight=raster.image_weight, 
@@ -158,12 +171,13 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
                   depth_var=img_depth_var, 
 
                   camera=camera_params,
+                  config=config,
                     
                   split_heuristics=heuristics,
                   points_in_view=indexes,
 
                   point_depth=depths,
-                  radii=radii)
+                  gaussians2d=gaussians2d)
 
 
 def viewspace_gradient(gaussians2d: torch.Tensor):

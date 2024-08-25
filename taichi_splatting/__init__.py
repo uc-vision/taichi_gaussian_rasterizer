@@ -4,7 +4,6 @@ from .mapper.tile_mapper import map_to_tiles, pad_to_tile
 from .rasterizer import rasterize, rasterize_with_tiles
 
 from .spherical_harmonics import evaluate_sh_at
-from .misc.radius import compute_radius
 
 
 from . import perspective

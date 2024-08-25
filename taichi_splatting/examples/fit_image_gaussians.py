@@ -104,6 +104,7 @@ def train_epoch(opt, gaussians, ref_image,
 
 
       scale = torch.exp(gaussians.log_scaling)
+      
       loss = (torch.nn.functional.l1_loss(raster.image, ref_image) 
               + opacity_reg * opacity.mean()
               + scale_reg * scale.pow(2).mean())
