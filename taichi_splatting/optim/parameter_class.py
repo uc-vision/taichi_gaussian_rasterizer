@@ -82,6 +82,21 @@ class ParameterClass():
       group['lr'] = learning_rates[group['name']]
 
     return self
+  
+
+  def state_dict(self) -> Dict:
+    return {
+      'tensors': self.tensors.state_dict(),
+      'optimizer': self.get_state()
+    }
+  
+  def from_state_dict(self, state) -> 'ParameterClass':
+    return ParameterClass(
+      TensorDict.from_dict(state['tensors']), 
+      self.parameter_groups, 
+      state['optimizer'],
+      optimizer=self.create_optimizer
+    )
 
   def zero_grad(self):
     self.optimizer.zero_grad()
@@ -121,7 +136,7 @@ class ParameterClass():
     return ParameterClass(
       f(self.tensors), 
       self.parameter_groups, 
-      self._updated_state(lambda x: x),
+      self.get_state(),
       optimizer=self.create_optimizer
     )
 
@@ -162,7 +177,7 @@ class ParameterClass():
 
 
   def __getitem__(self, idx):
-    state = self._updated_state(lambda x: x[idx])
+    state = self.get_state()
     return ParameterClass(self.tensors[idx], self.parameter_groups, state, optimizer=self.create_optimizer)
   
   def append_tensors(self, tensors:TensorDict):
@@ -172,7 +187,10 @@ class ParameterClass():
     state = self._updated_state(lambda x: torch.cat(
       [x, x.new_zeros(n, *x.shape[1:])] )
     )
-    return ParameterClass(torch.cat([self.tensors, tensors]), self.parameter_groups, state, optimizer=self.create_optimizer)
+    return ParameterClass(torch.cat([self.tensors, tensors]), 
+                          self.parameter_groups, 
+                          state, 
+                          optimizer=self.create_optimizer)
 
   def append(self, params:'ParameterClass'):
     return self.append_tensors(params.tensors)
