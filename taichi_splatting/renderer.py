@@ -1,6 +1,6 @@
 
 
-from dataclasses import dataclass
+from dataclasses import fields, dataclass
 from functools import cached_property
 from beartype import beartype
 from beartype.typing import Optional, Tuple
@@ -15,6 +15,9 @@ from taichi_splatting.perspective import (CameraParams)
 from taichi_splatting.perspective.projection import project_to_image
 from taichi_splatting.torch_lib.projection import ndc_depth
 
+
+def unpack(dc) -> tuple:
+    return {field.name:getattr(dc, field.name) for field in fields(dc)}
 
 @dataclass(frozen=True, kw_only=True)
 class Rendering:
@@ -87,6 +90,14 @@ class Rendering:
   @property
   def num_points(self) -> int:
     return self.points_in_view.shape[0]
+  
+  def detach(self):
+
+    
+    return Rendering(
+      **{k: x.detach() if hasattr(x, 'detach') else x
+          for k, x in unpack(self).items()})
+
 
 @beartype
 def render_gaussians(

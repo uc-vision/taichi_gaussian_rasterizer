@@ -58,6 +58,8 @@ class CameraParams:
     self.T_camera_world.requires_grad_(requires_grad)
     return self
 
+  def detach(self):
+    return replace(self, projection=self.projection.detach(), T_camera_world=self.T_camera_world.detach())
 
   def __repr__(self):
     w, h = self.image_size
