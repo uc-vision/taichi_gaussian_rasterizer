@@ -1,8 +1,11 @@
 from dataclasses import dataclass, replace
+from functools import cached_property
 from beartype.typing import Tuple
 from beartype import beartype
 from tensordict import tensorclass
 import torch
+
+import torch.nn.functional as F
 
   
 @beartype
@@ -109,13 +112,26 @@ class Gaussians2D():
   
   feature      : torch.Tensor # N  - (any rgb, label etc)
 
-  @property
+  @cached_property
   def opacity(self):
     return self.alpha_logit.sigmoid()
   
-  @property
+  @cached_property
   def scaling(self):
     return torch.exp(self.log_scaling)
+
+  @cached_property
+  def unit_rotation(self):
+    return F.normalize(self.rotation)
+  
+  @cached_property
+  def alpha(self):
+    return F.sigmoid(self.alpha_logit)
+  
+
+
+
+
 
 
 

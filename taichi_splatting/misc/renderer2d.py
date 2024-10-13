@@ -7,6 +7,7 @@ from typing import Optional
 from beartype.typing import Tuple
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 
 from taichi_splatting.data_types import Gaussians2D
 
@@ -29,8 +30,11 @@ def project_gaussians2d(points: Gaussians2D) -> torch.Tensor:
 
     v1 = points.rotation / torch.norm(points.rotation, dim=1, keepdim=True)
 
-    return torch.cat([points.position, v1, sigma, alpha.unsqueeze(1)], dim=-1)  
-    
+
+    return torch.cat([points.position, v1, sigma, alpha], dim=-1)  
+
+
+
 
 
 def point_basis(points:Gaussians2D):

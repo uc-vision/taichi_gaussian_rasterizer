@@ -1,4 +1,5 @@
-from functools import partial
+from dataclasses import dataclass
+from functools import cached_property, partial
 import math
 from pathlib import Path
 from beartype import beartype
@@ -6,8 +7,13 @@ import cv2
 import argparse
 import taichi as ti
 
+from tensordict import tensorclass
 import torch
+from torch import nn
+
+
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
+from taichi_splatting.examples.tiny_nn import tiny_nn
 from taichi_splatting.misc.renderer2d import point_basis, project_gaussians2d, uniform_split_gaussians2d
 
 from taichi_splatting.optim.sparse_adam import SparseAdam
@@ -19,6 +25,7 @@ from taichi_splatting.tests.random_data import random_2d_gaussians
 from taichi_splatting.torch_lib.util import check_finite
 from torch.profiler import profile, record_function, ProfilerActivity
 
+
 import time
 
 
@@ -28,6 +35,8 @@ def parse_args():
   parser.add_argument('--seed', type=int, default=0)
   parser.add_argument('--tile_size', type=int, default=16)
   parser.add_argument('--pixel_tile', type=str, help='Pixel tile for backward pass default "2,2"')
+
+  parser.add_argument('--feature_size', type=int, default=16)
 
   parser.add_argument('--n', type=int, default=1000)
   parser.add_argument('--target', type=int, default=None)
@@ -74,22 +83,83 @@ def display_image(name, image):
 def psnr(a, b):
   return 10 * torch.log10(1 / torch.nn.functional.mse_loss(a, b))  
 
-def train_epoch(opt:SparseAdam, gaussians:ParameterClass, ref_image, 
+
+@tensorclass
+class FeatureGaussians2D():
+  position     : torch.Tensor # 2  - xy
+  z_depth        : torch.Tensor # 1  - for sorting
+  feature      : torch.Tensor # N  - (any rgb, label etc)
+
+
+@dataclass
+class Scene:
+  
+  points : ParameterClass
+  model: nn.Module
+
+  model_opt: torch.optim.Optimizer
+
+
+  @property
+  def point_count(self):
+    return self.points.batch_size[0]
+  
+  
+  def gaussians(self) -> Gaussians2D:
+    out:torch.Tensor = self.model(self.points.feature).to(dtype=torch.float32) # Nx8
+    # 2 (log_scaling) + 2 (rotation) + 1 (alpha_logit) + 3 (rgb)
+    return Gaussians2D(
+      position = self.points.position,
+      z_depth = self.points.z_depth,
+      log_scaling = out[:, 0:2],
+      rotation = out[:, 2:4],
+      alpha_logit = out[:, 4:5],
+      feature = out[:, 5:8].sigmoid()
+    )
+  
+  def fit_to(self, target:Gaussians2D, iters:int=100):
+
+    for _ in range(iters):
+      gaussians = self.gaussians()
+      
+      loss = torch.scalar_tensor(0.0, device=self.device)
+      for k in ['log_scaling', 'rotation', 'alpha_logit', 'feature']:
+        loss += torch.nn.functional.l1_loss(
+          getattr(gaussians, k), 
+          getattr(target, k))
+      
+      loss.backward()
+      self.step(visible_indexes=torch.arange(self.point_count))
+  
+  @property
+  def device(self):
+    return self.points.position.device
+  
+  def step(self, visible_indexes:torch.Tensor):
+
+    self.points.step(visible_indexes=visible_indexes)
+    self.model_opt.step()
+
+    self.points.zero_grad()
+    self.model_opt.zero_grad()
+
+
+
+
+def train_epoch(scene:Scene, 
+        ref_image, 
         config:RasterConfig,        
         epoch_size=100, 
         grad_alpha=0.9, 
         opacity_reg=0.0,
-        scale_reg=0.0,
-        noise_threshold=0.05,
-        noise_lr=0.0, 
-        k = 100):
+        scale_reg=0.0):
     
     h, w = ref_image.shape[:2]
 
-    split_heuristics = torch.zeros((gaussians.batch_size[0], 2), device=gaussians.position.device)
+    split_heuristics = torch.zeros((scene.point_count, 2), device=scene.device)
 
     for i in range(epoch_size):
-      opt.zero_grad()
+      gaussians:Gaussians2D = scene.gaussians()
 
       gaussians2d = project_gaussians2d(gaussians)  
       opacity = torch.sigmoid(gaussians.alpha_logit).unsqueeze(-1)
@@ -101,12 +171,10 @@ def train_epoch(opt:SparseAdam, gaussians:ParameterClass, ref_image,
         image_size=(w, h), 
         config=config)
 
-
-      scale = torch.exp(gaussians.log_scaling)
       
       loss = (torch.nn.functional.l1_loss(raster.image, ref_image) 
               + opacity_reg * opacity.mean()
-              + scale_reg * scale.pow(2).mean())
+              + scale_reg * gaussians.scaling.pow(2).mean())
 
       loss.backward()
 
@@ -117,9 +185,9 @@ def train_epoch(opt:SparseAdam, gaussians:ParameterClass, ref_image,
       # opt.step()
 
       basis = point_basis(gaussians)
-      gaussians.update_group('position', basis=basis)
+      scene.points.update_group('position', basis=basis)
 
-      opt.step(visible_indexes = visible)
+      scene.step(visible_indexes = visible)
 
       with torch.no_grad():
         gaussians.log_scaling.clamp_max(5)
@@ -127,15 +195,66 @@ def train_epoch(opt:SparseAdam, gaussians:ParameterClass, ref_image,
         split_heuristics =  raster.point_split_heuristics if i == 0 \
             else (1 - grad_alpha) * split_heuristics + grad_alpha * raster.point_split_heuristics
         
-        opacity = torch.sigmoid(gaussians.alpha_logit)
-        op_factor = torch.sigmoid(k * (noise_threshold - opacity)).unsqueeze(1)
-
-        # noise = sample_gaussians(gaussians) * op_factor * noise_lr
-        noise = torch.randn_like(gaussians.position) * op_factor * noise_lr
-        gaussians.position += noise
 
       prune_cost, densify_score = split_heuristics.unbind(dim=1)
     return raster.image, prune_cost, densify_score 
+
+def make_scene(n:int, w:int, h:int, feature_size:int, device:torch.device, position_lr:float=0.1):
+  gaussians = random_2d_gaussians(n, (w, h), alpha_range=(0.5, 1.0), scale_factor=0.1)
+  feature_gaussians = FeatureGaussians2D(gaussians.position, 
+                                 feature=torch.randn(gaussians.batch_size[0], feature_size, dtype=torch.float32),
+                                 z_depth=gaussians.z_depth, 
+                                 batch_size=gaussians.batch_size).to(device)
+  
+  model = tiny_nn(hidden=64, layers=3, num_features=feature_size, output_features=8)
+  # 2 (log_scaling) + 2 (rotation) + 1 (alpha_logit) + 3 (rgb)
+
+  model.to(device)
+  model_opt = torch.optim.Adam(model.parameters(), lr=0.001)
+
+  parameter_groups = dict(
+    position=dict(lr=position_lr, type='local'),
+    feature=dict(lr=0.1),
+  )
+
+  create_optimizer = partial(SparseAdam, betas=(0.8, 0.999))
+  params = ParameterClass(feature_gaussians.to_tensordict(), 
+        parameter_groups, optimizer=create_optimizer)
+
+  scene = Scene(params, model, model_opt)
+  # scene.fit_to(gaussians.to(device=device))
+
+  return scene
+
+@beartype
+def take_n(t:torch.Tensor, n:int, descending=False):
+  """ Return mask of n largest or smallest values in a tensor."""
+  idx = torch.argsort(t, descending=descending)[:n]
+
+  # convert to mask
+  mask = torch.zeros_like(t, dtype=torch.bool)
+  mask[idx] = True
+
+  return mask
+  
+def split_prune(n, target, n_prune, densify_score, prune_cost):
+    prune_mask = take_n(prune_cost, n_prune, descending=False)
+
+    target_split = ((target - n) + n_prune) 
+    split_mask = take_n(densify_score, target_split, descending=True)
+
+    both = (split_mask & prune_mask)
+    return split_mask ^ both, prune_mask ^ both
+
+
+
+def timed_epoch(*args, **kwargs):
+  start = time.time()
+  image, grad, vis = train_epoch(*args, **kwargs)
+  torch.cuda.synchronize()
+  end = time.time()
+
+  return image, grad, vis, end - start
 
 
 def main():
@@ -166,31 +285,11 @@ def main():
   torch.manual_seed(cmd_args.seed)
   lr_range = (0.1, 0.1)
 
-  gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=0.1).to(torch.device('cuda:0'))
+
   
-  parameter_groups = dict(
-    position=dict(lr=lr_range[0], type='local'),
-    log_scaling=dict(lr=0.025),
-    rotation=dict(lr=0.05),
-    alpha_logit=dict(lr=0.05),
-    feature=dict(lr=0.01)
-  )
-
-  create_optimizer = partial(SparseAdam, betas=(0.8, 0.999))
-  # create_optimizer = partial(optim.Adam, foreach=True, betas=(0.7, 0.999), amsgrad=True, weight_decay=0.0)
-  # create_optimizer = partial(AdamWScheduleFree, betas=(0.7, 0.999), weight_decay=0.0, warmup_steps=1000)
+  scene = make_scene(cmd_args.n, w, h, cmd_args.feature_size, device, position_lr=lr_range[0])
 
 
-
-  params = ParameterClass(gaussians.to_tensordict(), 
-        parameter_groups, optimizer=create_optimizer)
-  
-
-
-  keys = set(params.keys())
-  trainable = set(params.optimized_keys())
-
-  print(f'attributes - trainable: {trainable} other: {keys - trainable}')
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255
   
@@ -200,36 +299,6 @@ def main():
                         antialias=not cmd_args.no_antialias,
                         pixel_stride=cmd_args.pixel_tile or (2, 2))
 
-  @beartype
-  def take_n(t:torch.Tensor, n:int, descending=False):
-    """ Return mask of n largest or smallest values in a tensor."""
-    idx = torch.argsort(t, descending=descending)[:n]
-
-    # convert to mask
-    mask = torch.zeros_like(t, dtype=torch.bool)
-    mask[idx] = True
-
-    return mask
-    
-  def split_prune(n, target, n_prune, densify_score, prune_cost):
-      prune_mask = take_n(prune_cost, n_prune, descending=False)
-
-      target_split = ((target - n) + n_prune) 
-      split_mask = take_n(densify_score, target_split, descending=True)
-
-      both = (split_mask & prune_mask)
-      return split_mask ^ both, prune_mask ^ both
-
-
-
-
-  def timed_epoch(*args, **kwargs):
-    start = time.time()
-    image, grad, vis = train_epoch(*args, **kwargs)
-    torch.cuda.synchronize()
-    end = time.time()
-
-    return image, grad, vis, end - start
 
 
   train = with_benchmark(timed_epoch) if cmd_args.profile else timed_epoch
@@ -240,24 +309,15 @@ def main():
     t = (epoch + 1) / (cmd_args.max_epoch - 1)
 
 
-    params.set_learning_rate(position = log_lerp(t, *lr_range))
-
-
-    image, densify_score, prune_cost, epoch_time = train(params.optimizer, params, ref_image, 
-                                        epoch_size=epoch_size, config=config, 
+    image, densify_score, prune_cost, epoch_time = train(scene, ref_image, config=config, 
+                                        epoch_size=epoch_size, 
                                         opacity_reg=cmd_args.opacity_reg,
-                                        scale_reg=cmd_args.scale_reg,
-                                        noise_lr=cmd_args.noise_scale * (1 - t)**2)
+                                        scale_reg=cmd_args.scale_reg)
     
 
     with torch.no_grad():
 
-      if cmd_args.show:
-        # gaussians2d = project_gaussians2d(params)
-        # depths = encode_depth32(params.z_depth)
-        # raster =  rasterize(gaussians2d, depths, densify_score.contiguous().unsqueeze(-1), 
-        #                     image_size=(w, h), config=config, compute_split_heuristics=True)
-      
+      if cmd_args.show:      
         display_image('rendered', image)
 
     
@@ -271,26 +331,26 @@ def main():
       cpsnr = psnr(ref_image, image)
       print(f'{epoch + 1}: {epoch_size / epoch_time:.1f} iters/sec CPSNR {cpsnr:.2f}')
 
-      if cmd_args.target and epoch < cmd_args.max_epoch - 1:
-        gaussians = Gaussians2D(**params.tensors, batch_size=params.batch_size)
+      # if cmd_args.target and epoch < cmd_args.max_epoch - 1:
+      #   gaussians = Gaussians2D(**params.tensors, batch_size=params.batch_size)
 
-        t_points = min(math.pow(t * 2, 0.5), 1.0)
+      #   t_points = min(math.pow(t * 2, 0.5), 1.0)
 
-        n = gaussians.batch_size[0]
+      #   n = gaussians.batch_size[0]
 
-        split_mask, prune_mask = split_prune(n = n, 
-                    target = math.ceil(cmd_args.n * (1 - t_points) + t_points * cmd_args.target),
-                    n_prune=int(cmd_args.prune_rate * n * (1 - t)**2),
-                    densify_score=densify_score, prune_cost=prune_cost)
-
-
-        splits = uniform_split_gaussians2d(gaussians[split_mask])
+      #   split_mask, prune_mask = split_prune(n = n, 
+      #               target = math.ceil(cmd_args.n * (1 - t_points) + t_points * cmd_args.target),
+      #               n_prune=int(cmd_args.prune_rate * n * (1 - t)**2),
+      #               densify_score=densify_score, prune_cost=prune_cost)
 
 
-        params = params[~(split_mask | prune_mask)]
-        params = params.append_tensors(splits.to_tensordict())
+      #   splits = uniform_split_gaussians2d(gaussians[split_mask])
 
-        print(f" split {split_mask.sum()}, pruned {prune_mask.sum()} {params.batch_size} points")
+
+      #   params = params[~(split_mask | prune_mask)]
+      #   params = params.append_tensors(splits.to_tensordict())
+
+      #   print(f" split {split_mask.sum()}, pruned {prune_mask.sum()} {params.batch_size} points")
 
         
 
