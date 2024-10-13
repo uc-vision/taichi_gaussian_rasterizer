@@ -113,7 +113,7 @@ class Scene:
       z_depth = self.points.z_depth,
       log_scaling = out[:, 0:2],
       rotation = out[:, 2:4],
-      alpha_logit = out[:, 4:5],
+      alpha_logit = out[:, 4],
       feature = out[:, 5:8].sigmoid()
     )
   
@@ -136,14 +136,11 @@ class Scene:
     return self.points.position.device
   
   def step(self, visible_indexes:torch.Tensor):
-
     self.points.step(visible_indexes=visible_indexes)
     self.model_opt.step()
 
     self.points.zero_grad()
     self.model_opt.zero_grad()
-
-
 
 
 def train_epoch(scene:Scene, 
@@ -160,10 +157,7 @@ def train_epoch(scene:Scene,
 
     for i in range(epoch_size):
       gaussians:Gaussians2D = scene.gaussians()
-
       gaussians2d = project_gaussians2d(gaussians)  
-      opacity = torch.sigmoid(gaussians.alpha_logit).unsqueeze(-1)
-
 
       raster = rasterize(gaussians2d=gaussians2d, 
         depth=gaussians.z_depth.clamp(0, 1),
@@ -171,10 +165,12 @@ def train_epoch(scene:Scene,
         image_size=(w, h), 
         config=config)
 
-      
       loss = (torch.nn.functional.l1_loss(raster.image, ref_image) 
-              + opacity_reg * opacity.mean()
-              + scale_reg * gaussians.scaling.pow(2).mean())
+        # + opacity_reg * gaussians.alpha.mean()
+        + scale_reg * gaussians.scaling.pow(2).mean())
+      # loss = (torch.nn.functional.l1_loss(raster.image, ref_image) 
+      #         + opacity_reg * gaussians.alpha.mean()
+      #         + scale_reg * gaussians.scaling.pow(2).mean())
 
       loss.backward()
 
@@ -190,7 +186,6 @@ def train_epoch(scene:Scene,
       scene.step(visible_indexes = visible)
 
       with torch.no_grad():
-        gaussians.log_scaling.clamp_max(5)
 
         split_heuristics =  raster.point_split_heuristics if i == 0 \
             else (1 - grad_alpha) * split_heuristics + grad_alpha * raster.point_split_heuristics
@@ -206,18 +201,18 @@ def make_scene(n:int, w:int, h:int, feature_size:int, device:torch.device, posit
                                  z_depth=gaussians.z_depth, 
                                  batch_size=gaussians.batch_size).to(device)
   
-  model = tiny_nn(hidden=64, layers=3, num_features=feature_size, output_features=8)
+  model = tiny_nn(hidden=64, layers=2, num_features=feature_size, output_features=8)
   # 2 (log_scaling) + 2 (rotation) + 1 (alpha_logit) + 3 (rgb)
 
   model.to(device)
-  model_opt = torch.optim.Adam(model.parameters(), lr=0.001)
+  model_opt = torch.optim.Adam(model.parameters(), lr=0.01)
 
   parameter_groups = dict(
-    position=dict(lr=position_lr, type='local'),
+    position=dict(lr=position_lr, type='adam'),
     feature=dict(lr=0.1),
-  )
+  ) 
 
-  create_optimizer = partial(SparseAdam, betas=(0.8, 0.999))
+  create_optimizer = partial(SparseAdam, betas=(0.5, 0.999))
   params = ParameterClass(feature_gaussians.to_tensordict(), 
         parameter_groups, optimizer=create_optimizer)
 
