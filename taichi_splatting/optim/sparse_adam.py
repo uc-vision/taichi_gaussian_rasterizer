@@ -96,6 +96,7 @@ def adopt_kernel(betas=(0.9, 0.999), eps=1e-08,  use_point_lr=False, use_mask_lr
           exp_avg[idx, j] = lerp(b1, exp_avg[idx, j], g_corr)
         else:
           # initialise v_0 
+          # print("???")
           exp_avg_sq[idx, j] = g * g
 
 
@@ -259,6 +260,20 @@ def scalar_adam_step(group:dict, param: torch.Tensor, state: dict, visible_index
 
 
 
+def adopt_step(group:dict, param: torch.Tensor, state: dict, visible_indexes: torch.Tensor):
+  grad = param.grad.view(param.shape[0], -1)
+  param = param.view(param.shape[0], -1) 
+  step, exp_avg, exp_avg_sq = get_scalar_state(state, param)
+
+  point_lr, use_point_lr = get_point_lr(group, param)
+  mask_lr, use_mask_lr = get_mask_lr(group, param)
+
+  kernel = adopt_kernel(betas=group["betas"], eps=group["eps"], 
+                        use_point_lr=use_point_lr, use_mask_lr=use_mask_lr)
+  
+  kernel(param, grad, step, exp_avg, exp_avg_sq, visible_indexes, 
+          point_lr=point_lr, mask_lr=mask_lr, global_lr=group["lr"])
+  
 
 def vector_adam_step(group:dict, param: torch.Tensor, state: dict, visible_indexes: torch.Tensor):
   grad = param.grad.view(param.shape[0], -1)
@@ -335,6 +350,8 @@ class SparseAdam(torch.optim.Optimizer):
         local_vector_adam_step(group, param, state, visible_indexes, basis=basis)
       elif group["type"] == "scalar":
         scalar_adam_step(group, param, state, visible_indexes)
+      elif group["type"] == "adopt":
+        adopt_step(group, param, state, visible_indexes)
       else:
         raise ValueError(f"unknown group type {group['type']}")
     
