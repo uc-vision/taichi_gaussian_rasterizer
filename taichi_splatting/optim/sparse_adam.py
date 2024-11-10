@@ -55,6 +55,83 @@ def adam_kernel(betas=(0.9, 0.999), eps=1e-12,  use_point_lr=False, use_mask_lr=
 
 
 @cache
+def laprop_kernel(betas=(0.9, 0.999), eps=1e-16):
+  b1, b2 = betas
+
+  @queued
+  @ti.kernel
+  def kernel(param: ti.types.ndarray(dtype=ti.f32, ndim=2),
+           grad: ti.types.ndarray(dtype=ti.f32, ndim=2),
+           step: ti.types.ndarray(dtype=ti.f32, ndim=1),
+           exp_avg: ti.types.ndarray(dtype=ti.f32, ndim=2),
+           exp_avg_sq: ti.types.ndarray(dtype=ti.f32, ndim=2),
+           indexes: ti.types.ndarray(dtype=ti.int64, ndim=1),
+           global_lr: ti.f32):
+
+    for i in indexes:
+      idx = indexes[i]
+
+      step[idx] += 1
+      
+      exp_avg_lr_1 = 1.0 - b1 ** step[idx]
+      exp_avg_lr_2 = 1.0 - b2 ** step[idx]
+      step_size = global_lr / exp_avg_lr_1
+
+      for j in range(param.shape[1]):
+        g = grad[idx, j]
+        
+        # Calculate new values
+        avg_sq = lerp(b2, exp_avg_sq[idx, j], g * g)
+        avg = lerp(b1, exp_avg[idx, j], 
+                   g / ti.max(ti.sqrt(avg_sq / exp_avg_lr_2), eps))
+        
+        # Group all updates together
+        param[idx, j] -= step_size * avg
+        exp_avg_sq[idx, j] = avg_sq
+        exp_avg[idx, j] = avg
+
+  return kernel
+
+@cache 
+def vector_laprop_kernel(betas=(0.9, 0.999), eps=1e-16, dims=3):
+  vec = ti.types.vector(n=dims, dtype=ti.f32)
+
+  @queued
+  @ti.kernel
+  def kernel(param: ti.types.ndarray(dtype=vec, ndim=1),
+             grad: ti.types.ndarray(dtype=vec, ndim=1),
+             step: ti.types.ndarray(dtype=ti.f32, ndim=1),
+             exp_avg: ti.types.ndarray(dtype=vec, ndim=1),
+             exp_avg_sq: ti.types.ndarray(dtype=ti.f32, ndim=1),
+             indexes: ti.types.ndarray(dtype=ti.int64, ndim=1),
+             global_lr: ti.f32):
+    b1, b2 = betas
+
+    for i in indexes:
+      idx = indexes[i]
+
+      step[idx] += 1
+      
+      exp_avg_lr_1 = 1.0 - b1 ** step[idx]
+      exp_avg_lr_2 = 1.0 - b2 ** step[idx]
+      step_size = global_lr / exp_avg_lr_1
+
+      g = grad[idx]
+      
+      # Calculate new values
+      avg_sq = lerp(b2, exp_avg_sq[idx], g.dot(g))
+      avg = lerp(b1, exp_avg[idx], 
+                 g / ti.max(ti.sqrt(avg_sq / exp_avg_lr_2), eps))
+      
+      # Group all updates together
+      param[idx] -= step_size * avg
+      exp_avg_sq[idx] = avg_sq
+      exp_avg[idx] = avg
+
+  return kernel
+    
+
+@cache
 def adopt_kernel(betas=(0.9, 0.999), eps=1e-12):
   b1, b2 = betas
 
@@ -262,7 +339,15 @@ def adopt_step(group:dict, param: torch.Tensor, state: dict, visible_indexes: to
   kernel = adopt_kernel(betas=group["betas"], eps=group["eps"])
   
   kernel(param, grad, step, exp_avg, exp_avg_sq, visible_indexes, lr=group["lr"])
-  
+
+def laprop_step(group:dict, param: torch.Tensor, state: dict, visible_indexes: torch.Tensor):
+  grad = param.grad.view(param.shape[0], -1)
+  param = param.view(param.shape[0], -1) 
+  step, exp_avg, exp_avg_sq = get_scalar_state(state, param)
+
+  kernel = laprop_kernel(betas=group["betas"], eps=group["eps"])
+  kernel(param, grad, step, exp_avg, exp_avg_sq, visible_indexes, global_lr=group["lr"])
+
 
 def vector_adam_step(group:dict, param: torch.Tensor, state: dict, visible_indexes: torch.Tensor):
   grad = param.grad.view(param.shape[0], -1)
@@ -274,6 +359,9 @@ def vector_adam_step(group:dict, param: torch.Tensor, state: dict, visible_index
   point_lr, use_point_lr = get_point_lr(group, param)
   kernel = vector_adam_kernel(betas=group["betas"], eps=group["eps"], dims=dim, use_point_lr=use_point_lr)
   kernel(param, grad, step, exp_avg, exp_avg_sq, visible_indexes, point_lr=point_lr, global_lr=group["lr"])
+
+  # kernel = vector_laprop_kernel(betas=group["betas"], eps=group["eps"], dims=dim)
+  # kernel(param, grad, step, exp_avg, exp_avg_sq, visible_indexes, global_lr=group["lr"])
 
 
 def local_vector_adam_step(group:dict, param: torch.Tensor, state: dict, visible_indexes: torch.Tensor, basis: torch.Tensor):
@@ -341,6 +429,8 @@ class SparseAdam(torch.optim.Optimizer):
         scalar_adam_step(group, param, state, visible_indexes)
       elif group["type"] == "adopt":
         adopt_step(group, param, state, visible_indexes)
+      elif group["type"] == "laprop":
+        laprop_step(group, param, state, visible_indexes)
       else:
         raise ValueError(f"unknown group type {group['type']}")
     

@@ -230,22 +230,22 @@ def main():
 
 
   torch.manual_seed(cmd_args.seed)
-  lr_range = (1.0, 0.05)
+  lr_range = (2.0, 0.1)
 
   torch.manual_seed(cmd_args.seed)
   torch.cuda.random.manual_seed(cmd_args.seed)
-  gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=0.5).to(torch.device('cuda:0'))
+  gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=1.0).to(torch.device('cuda:0'))
   
   parameter_groups = dict(
     position=dict(lr=lr_range[0], type='local_vector'),
-    log_scaling=dict(lr=0.05, type='scalar'),
+    log_scaling=dict(lr=0.025, type='laprop'),
 
-    rotation=dict(lr=0.5, type='scalar'),
-    alpha_logit=dict(lr=0.2, type='scalar'),
-    feature=dict(lr=0.03, type='vector')
+    rotation=dict(lr=0.5, type='laprop'),
+    alpha_logit=dict(lr=0.1, type='laprop'),
+    feature=dict(lr=0.02, type='vector')
   )
 
-  create_optimizer = partial(SparseAdam, betas=(0.9, 0.9), eps=1e-16)
+  create_optimizer = partial(SparseAdam, betas=(0.9, 0.9), eps=1e-20)
 
 
   params = ParameterClass(gaussians.to_tensordict(), 
