@@ -155,6 +155,8 @@ def basis_kernel(betas=(0.9, 0.999), eps=1e-08, dims=2):
   
   return local_vector_adam_kernel(basis, to_local, from_local, betas, eps, dims)
 
+
+
 def get_point_lr(group: dict, param: torch.Tensor):
   if group["point_lr"] is not None:
     point_lr=group["point_lr"]

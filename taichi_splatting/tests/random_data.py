@@ -91,7 +91,7 @@ def random_2d_gaussians(n, image_size:Tuple[int, int],
   rotation = rotation / torch.norm(rotation, dim=1, keepdim=True)
 
   low, high = alpha_range
-  alpha = torch.rand(n) * (high - low) + low
+  alpha = torch.rand(n, 1) * (high - low) + low
 
 
   return Gaussians2D(
