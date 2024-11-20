@@ -170,7 +170,7 @@ def rasterize(gaussians2d:torch.Tensor, depth:torch.Tensor,
 
   assert gaussians2d.shape[0] == depth.shape[0] == features.shape[0], \
     f"Size mismatch: got {gaussians2d.shape}, {depth.shape}, {features.shape}"
-
+  
   overlap_to_point, tile_overlap_ranges = map_to_tiles(gaussians2d, depth, 
     image_size=image_size, config=config, use_depth16=use_depth16)
   

@@ -6,7 +6,7 @@ import torch
 
 from torch.nn import functional as F
 
-
+from tensordict import TensorDict
   
 @beartype
 @dataclass(frozen=True, eq=True)
@@ -128,6 +128,16 @@ class Gaussians2D():
 
   def set_scaling(self, scaling) -> 'Gaussians2D':
     return replace(self, log_scaling=torch.log(scaling))
+  
+  def addStep(self,step_gaussian):
+    self.alpha_logit = self.alpha_logit - step_gaussian.alpha_logit
+    self.feature = self.feature - step_gaussian.feature
+    self.log_scaling = self.log_scaling - step_gaussian.log_scaling
+    self.position = self.position - step_gaussian.position
+    self.rotation = self.rotation - step_gaussian.rotation
+    self.z_depth = self.z_depth - step_gaussian.z_depth
+
+    
 
 
 
