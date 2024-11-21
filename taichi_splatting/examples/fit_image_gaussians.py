@@ -1,35 +1,23 @@
-from dataclasses import replace
-from functools import partial
-from itertools import product
 import math
-import os
-from pathlib import Path
-from beartype import beartype
+from typing import List
 import cv2
 import argparse
 import numpy as np
+import torch.nn as nn
 import taichi as ti
 
 import torch
 from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
-from taichi_splatting.misc.renderer2d import point_basis, project_gaussians2d, uniform_split_gaussians2d
+from taichi_splatting.misc.renderer2d import project_gaussians2d
 
-from taichi_splatting.optim.sparse_adam import SparseAdam
 from taichi_splatting.rasterizer.function import rasterize
 
-from taichi_splatting.optim.parameter_class import ParameterClass
 from taichi_splatting.taichi_queue import TaichiQueue
 from taichi_splatting.tests.random_data import random_2d_gaussians
-from tensordict import TensorDict
 
 from taichi_splatting.torch_lib.util import check_finite
-from torch.profiler import profile, record_function, ProfilerActivity
 
-import time
-import torch.nn.functional as F
-import torchvision as tv
-import pdb
 
 def parse_args():
   parser = argparse.ArgumentParser()
@@ -39,9 +27,9 @@ def parse_args():
   parser.add_argument('--n', type=int, default=20)
   parser.add_argument('--iters', type=int, default=20)
 
-  parser.add_argument('--epoch', type=int, default=10, help='base epoch size (increases with t)')
+  parser.add_argument('--epoch', type=int, default=100, help='base epoch size (increases with t)')
 
-  parser.add_argument('--opacity_reg', type=float, default=0.0001)
+  parser.add_argument('--opacity_reg', type=float, default=0.0000)
   parser.add_argument('--scale_reg', type=float, default=1.0)
 
   parser.add_argument('--debug', action='store_true')
@@ -62,7 +50,7 @@ def lerp(t, a, b):
 
 
 def display_image(name, image):
-    image = (image.detach().clamp(0, 1) * 255).to(torch.uint8)
+    image = (image.clamp(0, 1) * 255).to(torch.uint8)
     image = image.cpu().numpy()
 
     cv2.imshow(name, image)
@@ -73,110 +61,156 @@ def psnr(a, b):
   return 10 * torch.log10(1 / torch.nn.functional.mse_loss(a, b))  
 
 
-def cat_values(d1, d2, dim=1):
-  assert d1.batch_size == d2.batch_size
+def cat_values(dicts, dim=1):
+  assert all(d.batch_size == dicts[0].batch_size for d in dicts)
   
+  dicts = [d.to_tensordict() for d in dicts]
+  assert all(d.keys() == dicts[0].keys() for d in dicts)
 
-  d1 = d1.to_tensordict()
-  d2 = d2.to_tensordict()
- 
+  keys, cls = dicts[0].keys(), type(dicts[0])
+  concatenated = {k: torch.cat([d[k] for d in dicts], dim=dim) for k in keys}
+  return cls.from_dict(concatenated, batch_size=dicts[0].batch_size)
 
-  return d1.__class__.from_dict({k:torch.cat([d1[k], d2[k]], dim=dim) 
-                     for k in d1.keys()}, batch_size=d1.batch_size)
+def element_sizes(t):
+  """ Get non batch sizes from a tensorclass"""
+  return {k:v.shape[1:] for k, v in t.items()}
+
+
+def split_tensorclass(t, flat_tensor:torch.Tensor):
+  sizes = element_sizes(t)
+  splits = [np.prod(s) for s in sizes.values()]
+
+  tensors = torch.split(flat_tensor, splits, dim=1)
+  
+  return t.__class__.from_dict(
+      {k: v.view(t.batch_size + s) 
+       for k, v, s in zip(sizes.keys(), tensors, sizes.values())},
+      batch_size=t.batch_size
+  )
+
+def flatten_tensorclass(t):
+  flat_tensor = torch.cat([v.view(v.shape[0], -1) for v in t.values()], dim=1)
+  return flat_tensor
+
+
+class Trainer:
+  def __init__(self, 
+               optimizer_mlp:torch.nn.Module, 
+               mlp_opt:torch.optim.Optimizer, 
+               ref_image:torch.Tensor,
+               config:RasterConfig, 
+               opacity_reg=0.0, 
+               scale_reg=0.0):
+    
+    self.optimizer_mlp = optimizer_mlp
+    self.mlp_opt = mlp_opt
+
+    self.config = config
+    self.opacity_reg = opacity_reg
+    self.scale_reg = scale_reg
+
+    self.ref_image:torch.Tensor = ref_image
+    self.running_scales = None
 
     
-
-def train_epoch(
-        optimizer_mlp:torch.nn.Module,
-        mlp_opt:torch.optim.Optimizer,
-
-        gaussians:Gaussians2D, 
-        
-        ref_image, 
-        config:RasterConfig,        
-        epoch_size=100, 
-
-        opacity_reg=0.0,
-        scale_reg=0.0):
+  def render(self, gaussians):
+    h, w = self.ref_image.shape[:2]
     
-  h, w = ref_image.shape[:2]
-  def render(gaussians1):
-    gaussians1.requires_grad_(True)
-    gaussians1.z_depth.grad = gaussians1.z_depth.new_zeros(gaussians1.z_depth.shape)
-
-    gaussians2d = project_gaussians2d(gaussians1) 
-
+    gaussians2d = project_gaussians2d(gaussians) 
     raster = rasterize(gaussians2d=gaussians2d, 
-      depth=gaussians1.z_depth.clamp(0, 1),
-      features=gaussians1.feature, 
-      
+      depth=gaussians.z_depth.clamp(0, 1),
+      features=gaussians.feature, 
       image_size=(w, h), 
-      config=config)
-
-    scale = torch.exp(gaussians1.log_scaling) / min(w, h)
-    loss = (torch.nn.functional.l1_loss(raster.image, ref_image) 
-            + opacity_reg * gaussians1.opacity.mean()
-            + scale_reg * scale.pow(2).mean())
-
-    loss.backward()
-    
+      config=self.config)
     return raster
 
-  with torch.enable_grad():
-    
-    raster = render(gaussians)
+  def render_step(self, gaussians):
+    with torch.enable_grad():
+      raster = self.render(gaussians)
 
+      h, w = self.ref_image.shape[:2]
+      scale = torch.exp(gaussians.log_scaling) / min(w, h)
+      loss = (torch.nn.functional.l1_loss(raster.image, self.ref_image) 
+              + self.opacity_reg * gaussians.opacity.mean()
+              + self.scale_reg * scale.pow(2).mean()
+              + 0.0 * gaussians.z_depth.sum()
+              )
+      
+      loss.backward()
+      return loss.item()
+
+  def get_gradients(self, gaussians):
+    gaussians = gaussians.clone()
+    gaussians.requires_grad_(True)
+    self.render_step(gaussians)
+    grad =  gaussians.grad
+    
+    # mean_abs_grad = grad.abs().mean(dim=0)
+    # if self.running_scales is None:
+    #   self.running_scales = mean_abs_grad
+    # else:
+    #   self.running_scales = lerp(0.99, self.running_scales, mean_abs_grad)
+
+    scales = dict(position = 0.0002, log_scaling = 0.005, rotation = 0.0005, feature = 0.01)
+
+    for k, v in grad.items():
+      if k in scales:
+        v /= (scales[k] / 1000.)
+
+    return grad
+
+    # for k, v in grad.abs().items():
+    #   print(f'{k}: {v.max() * 1000.:.4f} {v.mean() * 1000.:.4f}')
+      
+    # return grad / (self.running_scales.unsqueeze(0) + 1e-12)
+  
+
+
+  def train_epoch(self, gaussians, step_size=0.01, epoch_size=100):
     for i in range(epoch_size):
-      mlp_opt.zero_grad()
-      check_finite(gaussians, 'gaussians', warn=True)
-      gaussians_grads = cat_values(gaussians, gaussians.grad)
-    
-      inputs = torch.cat(list(gaussians_grads.values()), dim=1)
-      
-      step = optimizer_mlp(inputs)
-      
-  
-      with torch.no_grad():
-        gaussians.alpha_logit += step[:, :1]
-        gaussians.feature += step[:, 1:4]
-        gaussians.log_scaling += step[:, 4:6]
-        gaussians.position += step[:, 6:8]
-        gaussians.rotation += step[:, 8:10]
-        gaussians.z_depth += step[:, 10:11]
-        
-        # Ensure that the updated gaussians retain their gradients for further computation
-        gaussians.alpha_logit.requires_grad_(True)
-        gaussians.feature.requires_grad_(True)
-        gaussians.log_scaling.requires_grad_(True)
-        gaussians.position.requires_grad_(True)
-        gaussians.rotation.requires_grad_(True)
-        gaussians.z_depth.requires_grad_(True)
-      
 
+      grad = self.get_gradients(gaussians)
+      check_finite(grad, "grad")
+      self.mlp_opt.zero_grad()
 
-      for param in gaussians.values():
-        if param.grad is not None:
-          param.grad.zero_()
-      raster = render(gaussians)
-   
-      mlp_opt.step()
-      # split step up to tensordict so that we can add it back to the gaussians
-      # zero the gaussians.grad
+      inputs = flatten_tensorclass(grad)
 
-      # render the scene again with the modified gaussians
+      with torch.enable_grad():
+        step = self.optimizer_mlp(inputs)
+        step = split_tensorclass(gaussians, step) 
 
-      # step the mlp_opt to modify the model
+        loss = self.render_step(gaussians - step)
+        print(f'{i:3d}: {loss:.4f}')
 
-  
-  return raster.image
+      self.mlp_opt.step()
+      gaussians = gaussians - step * step_size
+
+    return gaussians
 
 
 
+def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, output_activation=None):
+  def linear(in_features, out_features, init_std=None):
+    m = nn.Linear(in_features, out_features)
 
+    if init_std is not None:
+      m.weight.data.normal_(0, init_std)
+      m.bias.data.zero_()
+
+    return m
+
+  return nn.Sequential(
+    linear(inputs, hidden_channels[0]), activation(),
+    *[nn.Sequential(linear(hidden_channels[i], hidden_channels[i+1]), activation())
+      for i in range(len(hidden_channels) - 1)],
+    linear(hidden_channels[-1], outputs, init_std=0.0001),
+
+    output_activation() if output_activation is not None else nn.Identity()
+  )   
 
 
 def main():
-  torch.set_printoptions(precision=4, sci_mode=False)
+  torch.set_printoptions(precision=4, sci_mode=True)
 
   cmd_args = parse_args()
   device = torch.device('cuda:0')
@@ -207,35 +241,21 @@ def main():
   channels = sum([np.prod(v.shape[1:], dtype=int) for k, v in gaussians.items()])
 
 
-    # Create the MLP
-  hidden_channels = [512,256,128,64,32,16,8,
-                      channels]  # Hidden layers  # Assuming output is 2D points after transformation
+  # Create the MLP
+  hidden_channels = [64, 64, 64, channels]  # Hidden layers 
+  point_optimizer_mlp = mlp(inputs = channels, outputs=channels, 
+              hidden_channels=hidden_channels, 
+              activation=nn.ReLU)
+  point_optimizer_mlp.to(device=device)
+  
+  mlp_opt = torch.optim.AdamW(point_optimizer_mlp.parameters(), lr=0.01)
 
-  point_optimizer_mlp = tv.ops.MLP(
-        in_channels=channels * 2, 
-        hidden_channels=hidden_channels,
-        dropout=0.1,
-        inplace=True,
-        bias=False,
-        activation_layer=torch.nn.ReLU  # Example activation
-    ).to(device=gaussians.position.device)
-  mlp_opt = torch.optim.Adam(point_optimizer_mlp.parameters(), lr=0.001)
-  # mlp_opt = torch.optim.Adam(
-  #       [
-  #           {'params': gaussians.alpha_logit, 'lr': learning_rate},
-  #           {'params': gaussians.feature, 'lr': learning_rate},
-  #           {'params': gaussians.log_scaling, 'lr': learning_rate},
-  #           {'params': gaussians.position, 'lr': learning_rate},
-  #           {'params': gaussians.rotation, 'lr': learning_rate},
-  #           {'params': gaussians.z_depth, 'lr': learning_rate},
-  #       ],
-  #       betas=(0.9, 0.999),  # Default beta values for Adam
-  #       eps=1e-8  # Small epsilon to prevent division by zero
-  #   )
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255 
   config = RasterConfig()
 
+  trainer = Trainer(point_optimizer_mlp, mlp_opt, ref_image, config, 
+                    opacity_reg=cmd_args.opacity_reg, scale_reg=cmd_args.scale_reg)
   
   epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
 
@@ -244,12 +264,13 @@ def main():
   for  epoch_size in epochs:
 
     metrics = {}
-    image = train_epoch(point_optimizer_mlp, mlp_opt, gaussians, ref_image, 
-                                      epoch_size=epoch_size, config=config, 
-                                      opacity_reg=cmd_args.opacity_reg,
-                                      scale_reg=cmd_args.scale_reg)
 
+    # Set warmup schedule for first 1000 iterations - log interpolate 
+    step_size = log_lerp(min(iteration / 1000., 1.0), 0.0001, 0.1)
+    
+    gaussians = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
 
+    image = trainer.render(gaussians).image
     if cmd_args.show:
       display_image('rendered', image)
 
