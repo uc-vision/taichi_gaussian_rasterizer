@@ -247,7 +247,7 @@ def main():
 
 
   # Create the MLP
-  hidden_channels = [512, 512,  channels]  # Hidden layers 
+  hidden_channels = [256, 256, 256, channels]  # Hidden layers 
   point_optimizer_mlp = mlp(inputs = channels, outputs=channels, 
               hidden_channels=hidden_channels, 
               activation=nn.ReLU)
