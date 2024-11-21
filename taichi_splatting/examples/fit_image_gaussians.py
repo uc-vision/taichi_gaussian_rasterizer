@@ -18,6 +18,7 @@ from taichi_splatting.tests.random_data import random_2d_gaussians
 
 from taichi_splatting.torch_lib.util import check_finite
 
+torch.set_float32_matmul_precision('high')
 
 def parse_args():
   parser = argparse.ArgumentParser()
@@ -27,10 +28,10 @@ def parse_args():
   parser.add_argument('--n', type=int, default=20)
   parser.add_argument('--iters', type=int, default=20)
 
-  parser.add_argument('--epoch', type=int, default=100, help='base epoch size (increases with t)')
+  parser.add_argument('--epoch', type=int, default=20, help='base epoch size (increases with t)')
 
   parser.add_argument('--opacity_reg', type=float, default=0.0000)
-  parser.add_argument('--scale_reg', type=float, default=1.0)
+  parser.add_argument('--scale_reg', type=float, default=10.0)
 
   parser.add_argument('--debug', action='store_true')
   parser.add_argument('--show', action='store_true')
@@ -151,7 +152,7 @@ class Trainer:
     # else:
     #   self.running_scales = lerp(0.99, self.running_scales, mean_abs_grad)
 
-    scales = dict(position = 0.0002, log_scaling = 0.005, rotation = 0.0005, feature = 0.01)
+    scales = dict(position = 0.0002, log_scaling = 0.005, rotation = 0.0005, feature = 0.001)
 
     for k, v in grad.items():
       if k in scales:
@@ -177,13 +178,13 @@ class Trainer:
 
       with torch.enable_grad():
         step = self.optimizer_mlp(inputs)
-        step = split_tensorclass(gaussians, step) 
+        step = split_tensorclass(gaussians, step)**2  * grad
 
         loss = self.render_step(gaussians - step)
         print(f'{i:3d}: {loss:.4f}')
 
       self.mlp_opt.step()
-      gaussians = gaussians - step * step_size
+      gaussians = gaussians - step * step_size 
 
     return gaussians
 
@@ -196,12 +197,16 @@ def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, output_
     if init_std is not None:
       m.weight.data.normal_(0, init_std)
       m.bias.data.zero_()
+    # else:
+    #   # m.weight.data.zero_()
+    #   m.bias.data.zero_()
 
     return m
 
   return nn.Sequential(
+    
     linear(inputs, hidden_channels[0]), activation(),
-    *[nn.Sequential(linear(hidden_channels[i], hidden_channels[i+1]), activation())
+    *[nn.Sequential(linear(hidden_channels[i], hidden_channels[i+1]), activation(), nn.LayerNorm(hidden_channels[i+1]))
       for i in range(len(hidden_channels) - 1)],
     linear(hidden_channels[-1], outputs, init_std=0.0001),
 
@@ -242,13 +247,15 @@ def main():
 
 
   # Create the MLP
-  hidden_channels = [64, 64, 64, channels]  # Hidden layers 
+  hidden_channels = [512, 512,  channels]  # Hidden layers 
   point_optimizer_mlp = mlp(inputs = channels, outputs=channels, 
               hidden_channels=hidden_channels, 
               activation=nn.ReLU)
   point_optimizer_mlp.to(device=device)
+
+  point_optimizer_mlp = torch.compile(point_optimizer_mlp)
   
-  mlp_opt = torch.optim.AdamW(point_optimizer_mlp.parameters(), lr=0.01)
+  mlp_opt = torch.optim.AdamW(point_optimizer_mlp.parameters(), lr=0.0001)
 
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255 
@@ -265,8 +272,8 @@ def main():
 
     metrics = {}
 
-    # Set warmup schedule for first 1000 iterations - log interpolate 
-    step_size = log_lerp(min(iteration / 1000., 1.0), 0.0001, 0.1)
+    # Set warmup schedule for first iterations - log interpolate 
+    step_size = log_lerp(min(iteration / 1000., 1.0), 0.001, 1.0)
     
     gaussians = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
 
