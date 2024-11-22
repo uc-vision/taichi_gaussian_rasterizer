@@ -1,5 +1,5 @@
 import math
-from typing import List
+from typing import Dict, List
 import cv2
 import argparse
 import numpy as np
@@ -31,7 +31,7 @@ def parse_args():
   parser.add_argument('--epoch', type=int, default=20, help='base epoch size (increases with t)')
 
   parser.add_argument('--opacity_reg', type=float, default=0.0000)
-  parser.add_argument('--scale_reg', type=float, default=0.0)
+  parser.add_argument('--scale_reg', type=float, default=1.0)
 
   parser.add_argument('--debug', action='store_true')
   parser.add_argument('--show', action='store_true')
@@ -94,6 +94,9 @@ def flatten_tensorclass(t):
   return flat_tensor
 
 
+def mean_dicts(dicts:List[Dict[str, float]]):
+  return {k: sum(d[k] for d in dicts) / len(dicts) for k in dicts[0].keys()}
+
 class Trainer:
   def __init__(self, 
                optimizer_mlp:torch.nn.Module, 
@@ -131,14 +134,16 @@ class Trainer:
 
       h, w = self.ref_image.shape[:2]
       scale = torch.exp(gaussians.log_scaling) / min(w, h)
-      loss = (torch.nn.functional.l1_loss(raster.image, self.ref_image) 
-              + self.opacity_reg * gaussians.opacity.mean()
-              + self.scale_reg * scale.pow(2).mean()
-              + 0.0 * gaussians.z_depth.sum()
-              )
-      
+      opacity_reg = self.opacity_reg * gaussians.opacity.mean()
+      scale_reg = self.scale_reg * scale.pow(2).mean()
+      depth_reg = 0.0 * gaussians.z_depth.sum()
+
+      l1 = torch.nn.functional.l1_loss(raster.image, self.ref_image)
+
+      loss = l1 + opacity_reg + scale_reg + depth_reg
       loss.backward()
-      return loss.item()
+
+      return dict(loss=loss.item(), opacity_reg=opacity_reg.item(), scale_reg=scale_reg.item())
 
   def get_gradients(self, gaussians):
     gaussians = gaussians.clone()
@@ -147,26 +152,20 @@ class Trainer:
     grad =  gaussians.grad
     
 
+    mean_abs_grad = grad.abs().mean(dim=0)
+    if self.running_scales is None:
+      self.running_scales = mean_abs_grad
+    else:
+      self.running_scales = lerp(0.999, self.running_scales, mean_abs_grad)
 
-    scales = dict(position = 0.0002, log_scaling = 0.005, rotation = 0.0005, feature = 0.001)
 
-    for k, v in grad.items():
-      if k in scales:
-        v /= (scales[k] / 1000.)
+    return grad * 1e7
 
-    return grad
-
-    # mean_abs_grad = grad.abs().mean(dim=0)
-    # if self.running_scales is None:
-    #   self.running_scales = mean_abs_grad
-    # else:
-    #   self.running_scales = lerp(0.9, self.running_scales, mean_abs_grad)
-      
-    # return grad / (self.running_scales.unsqueeze(0) + 1e-12)
   
 
 
   def train_epoch(self, gaussians, step_size=0.01, epoch_size=100):
+    metrics = []
     for i in range(epoch_size):
 
       grad = self.get_gradients(gaussians)
@@ -179,23 +178,24 @@ class Trainer:
         step = self.optimizer_mlp(inputs)
         step = split_tensorclass(gaussians, step)
 
-        loss = self.render_step(gaussians - step)
-        print(f'{i:3d}: {loss:.4f}')
+        metrics.append(self.render_step(gaussians - step))
 
       self.mlp_opt.step()
       gaussians = gaussians - step * step_size 
 
-    return gaussians
+    return gaussians, mean_dicts(metrics)
 
 
 
-def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, norm=nn.Identity, output_activation=None):
+def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, norm=nn.Identity, 
+        output_activation=None, init_scale=None):
+  
   def linear(in_features, out_features, init_std=None):
     m = nn.Linear(in_features, out_features, bias=True)
 
     if init_std is not None:
       m.weight.data.normal_(0, init_std)
-
+    
     m.bias.data.zero_()
     return m
 
@@ -205,9 +205,12 @@ def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, norm=nn
     activation(),
     norm(hidden_channels[0]),
 
-    *[nn.Sequential(linear(hidden_channels[i], hidden_channels[i+1]), activation(), norm(hidden_channels[i+1]))
+    *[nn.Sequential(linear(hidden_channels[i], 
+                           hidden_channels[i+1]), activation(), 
+                           norm(hidden_channels[i+1]))
+
       for i in range(len(hidden_channels) - 1)],
-    linear(hidden_channels[-1], outputs, init_std=1e-10),
+    linear(hidden_channels[-1], outputs, init_std=init_scale),
 
     output_activation() if output_activation is not None else nn.Identity()
   )   
@@ -250,12 +253,14 @@ def main():
   point_optimizer_mlp = mlp(inputs = channels, outputs=channels, 
               hidden_channels=hidden_channels, 
               activation=nn.ReLU,
-              norm=nn.LayerNorm
+              norm=nn.LayerNorm,
+              # output_activation=nn.Tanh,
+              init_scale=1e-12
               )
   point_optimizer_mlp.to(device=device)
 
   point_optimizer_mlp = torch.compile(point_optimizer_mlp)
-  mlp_opt = torch.optim.Adam(point_optimizer_mlp.parameters(), lr=0.0001)
+  mlp_opt = torch.optim.Adam(point_optimizer_mlp.parameters(), lr=0.0002)
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255 
   config = RasterConfig()
@@ -272,9 +277,9 @@ def main():
     metrics = {}
 
     # Set warmup schedule for first iterations - log interpolate 
-    step_size = log_lerp(min(iteration / 1000., 1.0), 1.0, 1.0)
+    step_size = log_lerp(min(iteration / 500., 1.0), 0.01, 1.0)
     
-    gaussians = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
+    gaussians, train_metrics = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
 
     image = trainer.render(gaussians).image
     if cmd_args.show:
@@ -283,11 +288,12 @@ def main():
   
     metrics['CPSNR'] = psnr(ref_image, image).item()
     metrics['n'] = gaussians.batch_size[0]
+    metrics.update(train_metrics)
 
 
     for k, v in metrics.items():
       if isinstance(v, float):
-        metrics[k] = f'{v:.2f}'
+        metrics[k] = f'{v:.4f}'
       if isinstance(v, int):
         metrics[k] = f'{v:4d}'
 
