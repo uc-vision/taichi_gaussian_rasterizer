@@ -31,7 +31,7 @@ def parse_args():
   parser.add_argument('--epoch', type=int, default=20, help='base epoch size (increases with t)')
 
   parser.add_argument('--opacity_reg', type=float, default=0.0000)
-  parser.add_argument('--scale_reg', type=float, default=1.0)
+  parser.add_argument('--scale_reg', type=float, default=5.0)
 
   parser.add_argument('--debug', action='store_true')
   parser.add_argument('--show', action='store_true')
@@ -185,35 +185,59 @@ class Trainer:
 
     return gaussians, mean_dicts(metrics)
 
+class InputResidual(nn.Module):
+  def __init__(self, *layers):
+    super().__init__()
+    self.layers = nn.ModuleList(layers)
+
+  def forward(self, inputs):
+    x = self.layers[0](inputs)
+    
+    for layer in self.layers[1:]:
+      x = layer(torch.cat([x, inputs], dim=1))
+    return x
+
+def linear(in_features, out_features,  init_std=None):
+  m = nn.Linear(in_features, out_features, bias=True)
+
+  if init_std is not None:
+    m.weight.data.normal_(0, init_std)
+  
+  m.bias.data.zero_()
+  return m
+
+class Residual(nn.Module):
+  def __init__(self, *layers):
+    super().__init__()
+    self.layers = nn.ModuleList(layers)
+
+  def forward(self, x):
+    for layer in self.layers:
+      x = x + layer(x)
+    return x
+
+
+def layer(in_features, out_features, activation=nn.Identity, norm=nn.Identity, **kwargs):
+  return nn.Sequential(linear(in_features, out_features, **kwargs), 
+                       activation(),
+                       norm(out_features),
+                       )
 
 
 def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, norm=nn.Identity, 
-        output_activation=None, init_scale=None):
+        output_activation=nn.Identity, output_scale =None):
+
+  output_layer = layer(hidden_channels[-1], outputs, 
+                       output_activation,
+                       init_std=output_scale)
   
-  def linear(in_features, out_features, init_std=None):
-    m = nn.Linear(in_features, out_features, bias=True)
-
-    if init_std is not None:
-      m.weight.data.normal_(0, init_std)
-    
-    m.bias.data.zero_()
-    return m
-
   return nn.Sequential(
-    
-    linear(inputs, hidden_channels[0]), 
-    activation(),
-    norm(hidden_channels[0]),
-
-    *[nn.Sequential(linear(hidden_channels[i], 
-                           hidden_channels[i+1]), activation(), 
-                           norm(hidden_channels[i+1]))
-
+    layer(inputs, hidden_channels[0], activation),
+    *[layer(hidden_channels[i], hidden_channels[i+1], activation, norm)  
       for i in range(len(hidden_channels) - 1)],
-    linear(hidden_channels[-1], outputs, init_std=init_scale),
-
-    output_activation() if output_activation is not None else nn.Identity()
+    output_layer,
   )   
+
 
 
 def main():
@@ -249,23 +273,27 @@ def main():
 
 
   # Create the MLP
-  hidden_channels = [256, 256, 256, channels]  # Hidden layers 
-  point_optimizer_mlp = mlp(inputs = channels, outputs=channels, 
-              hidden_channels=hidden_channels, 
+  optimizer = mlp(inputs = channels, outputs=channels, 
+              hidden_channels=[128, 128, 128], 
               activation=nn.ReLU,
               norm=nn.LayerNorm,
               # output_activation=nn.Tanh,
-              init_scale=1e-12
+              output_scale=1e-12
               )
-  point_optimizer_mlp.to(device=device)
+  optimizer.to(device=device)
 
-  point_optimizer_mlp = torch.compile(point_optimizer_mlp)
-  mlp_opt = torch.optim.Adam(point_optimizer_mlp.parameters(), lr=0.0002)
+  print(optimizer)
+
+
+  optimizer = torch.compile(optimizer)
+  optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.00002)
+
+
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255 
   config = RasterConfig()
 
-  trainer = Trainer(point_optimizer_mlp, mlp_opt, ref_image, config, 
+  trainer = Trainer(optimizer, optimizer_opt, ref_image, config, 
                     opacity_reg=cmd_args.opacity_reg, scale_reg=cmd_args.scale_reg)
   
   epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
@@ -277,7 +305,7 @@ def main():
     metrics = {}
 
     # Set warmup schedule for first iterations - log interpolate 
-    step_size = log_lerp(min(iteration / 500., 1.0), 0.01, 1.0)
+    step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
     
     gaussians, train_metrics = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
 
