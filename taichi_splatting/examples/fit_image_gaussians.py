@@ -1,3 +1,4 @@
+from functools import partial
 import math
 from typing import Dict, List
 import cv2
@@ -9,6 +10,7 @@ import taichi as ti
 import torch
 from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
+from taichi_splatting.examples.mlp import mlp
 from taichi_splatting.misc.renderer2d import project_gaussians2d
 
 from taichi_splatting.rasterizer.function import rasterize
@@ -31,7 +33,7 @@ def parse_args():
   parser.add_argument('--epoch', type=int, default=20, help='base epoch size (increases with t)')
 
   parser.add_argument('--opacity_reg', type=float, default=0.0000)
-  parser.add_argument('--scale_reg', type=float, default=5.0)
+  parser.add_argument('--scale_reg', type=float, default=10.0)
 
   parser.add_argument('--debug', action='store_true')
   parser.add_argument('--show', action='store_true')
@@ -39,8 +41,8 @@ def parse_args():
   parser.add_argument('--profile', action='store_true')
   
   args = parser.parse_args()
-
   return args
+
 
 
 def log_lerp(t, a, b):
@@ -185,58 +187,6 @@ class Trainer:
 
     return gaussians, mean_dicts(metrics)
 
-class InputResidual(nn.Module):
-  def __init__(self, *layers):
-    super().__init__()
-    self.layers = nn.ModuleList(layers)
-
-  def forward(self, inputs):
-    x = self.layers[0](inputs)
-    
-    for layer in self.layers[1:]:
-      x = layer(torch.cat([x, inputs], dim=1))
-    return x
-
-def linear(in_features, out_features,  init_std=None):
-  m = nn.Linear(in_features, out_features, bias=True)
-
-  if init_std is not None:
-    m.weight.data.normal_(0, init_std)
-  
-  m.bias.data.zero_()
-  return m
-
-class Residual(nn.Module):
-  def __init__(self, *layers):
-    super().__init__()
-    self.layers = nn.ModuleList(layers)
-
-  def forward(self, x):
-    for layer in self.layers:
-      x = x + layer(x)
-    return x
-
-
-def layer(in_features, out_features, activation=nn.Identity, norm=nn.Identity, **kwargs):
-  return nn.Sequential(linear(in_features, out_features, **kwargs), 
-                       activation(),
-                       norm(out_features),
-                       )
-
-
-def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, norm=nn.Identity, 
-        output_activation=nn.Identity, output_scale =None):
-
-  output_layer = layer(hidden_channels[-1], outputs, 
-                       output_activation,
-                       init_std=output_scale)
-  
-  return nn.Sequential(
-    layer(inputs, hidden_channels[0], activation),
-    *[layer(hidden_channels[i], hidden_channels[i+1], activation, norm)  
-      for i in range(len(hidden_channels) - 1)],
-    output_layer,
-  )   
 
 
 
@@ -276,7 +226,7 @@ def main():
   optimizer = mlp(inputs = channels, outputs=channels, 
               hidden_channels=[128, 128, 128], 
               activation=nn.ReLU,
-              norm=nn.LayerNorm,
+              norm=partial(nn.LayerNorm, elementwise_affine=False),
               # output_activation=nn.Tanh,
               output_scale=1e-12
               )
@@ -286,7 +236,7 @@ def main():
 
 
   optimizer = torch.compile(optimizer)
-  optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.00002)
+  optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)
 
 
 
