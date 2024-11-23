@@ -4,12 +4,13 @@ from functools import partial
 import torch
 from taichi_splatting.benchmarks.util import benchmarked
 from taichi_splatting import spherical_harmonics
+from taichi_splatting import torch_lib
 
 import taichi as ti
 
-from taichi_splatting.taichi_queue import TaichiQueue, taichi_queue
+from taichi_splatting.taichi_queue import taichi_queue
 
-
+torch.set_float32_matmul_precision('high')
 
 def parse_args(args=None):
   parser = argparse.ArgumentParser()
@@ -29,7 +30,7 @@ def parse_args(args=None):
 
 
 
-def bench_sh(args):
+def bench_sh(args, module=spherical_harmonics):
   with taichi_queue(arch=ti.cuda, log_level=ti.INFO if not args.debug else ti.DEBUG, debug=args.debug):
     torch.manual_seed(args.seed)
 
@@ -38,14 +39,13 @@ def bench_sh(args):
       points = torch.randn(args.n, 3, device=args.device).to(args.device)
 
       indexes = torch.arange(args.n, device=args.device)
-      
       camera_pos = torch.zeros(3, device=args.device)
 
-      forward = partial(spherical_harmonics.evaluate_sh_at, sh_features, points, indexes, camera_pos)
+      forward = partial(module.evaluate_sh_at, sh_features, points, indexes, camera_pos)
       benchmarked('forward', forward, profile=args.profile, iters=args.iters)  
 
     def backward():
-      colors = spherical_harmonics.evaluate_sh_at(sh_features, points, indexes, camera_pos)
+      colors = module.evaluate_sh_at(sh_features, points, indexes, camera_pos)
       loss = colors.sum()
       loss.backward()
 
@@ -60,7 +60,11 @@ def bench_sh(args):
 
 def main():
   args = parse_args()
-  bench_sh(args)
+  
+  with torch.autocast(device_type=args.device, dtype=torch.float16):
+    bench_sh(args, torch_lib.spherical_harmonics)
+
+  bench_sh(args, spherical_harmonics)
 
 if __name__ == '__main__':
   main()

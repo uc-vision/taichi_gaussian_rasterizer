@@ -13,22 +13,27 @@ def check_sh_degree(sh_features):
   assert n * n == n_sh, f"SH feature count must be square, got {n_sh} ({sh_features.shape})"
   return (n - 1)
 
+
+rsh_cart = rsh_cart_n[3]
+
 @beartype
+@torch.compile
 def evaluate_sh(params:torch.Tensor,   # N, K, D where D = (degree + 1)^2
                 dirs:torch.Tensor,     # N, 3
                 ) -> torch.Tensor:     # N, K
 
-  degree = check_sh_degree(params)
-  assert degree <= 3 and degree >= 0, f"SH degree must be between 0 and 3, got {degree}"
+  # degree = check_sh_degree(params)
+  # assert degree <= 3 and degree >= 0, f"SH degree must be between 0 and 3, got {degree}"
 
-  rsh_cart = rsh_cart_n[degree]
   coeffs = rsh_cart(dirs) # N, D
  
-  out = torch.einsum('nd,nkd->nk', coeffs, params)
+  # out = torch.einsum('nd,nkd->nk', coeffs, params)
+  out = torch.bmm(params, coeffs.unsqueeze(2))
   return torch.clamp(out + 0.5, 0., 1.)
 
 
 @beartype
+@torch.compile(dynamic=True)
 def evaluate_sh_at(params:torch.Tensor,  # M, K, D where D = (degree + 1)^2
                 points:torch.Tensor,     # M, 3
                 
