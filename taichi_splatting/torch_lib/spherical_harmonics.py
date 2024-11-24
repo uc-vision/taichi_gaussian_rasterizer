@@ -14,32 +14,29 @@ def check_sh_degree(sh_features):
   return (n - 1)
 
 
-rsh_cart = rsh_cart_n[3]
-
 @beartype
-@torch.compile
 def evaluate_sh(params:torch.Tensor,   # N, K, D where D = (degree + 1)^2
                 dirs:torch.Tensor,     # N, 3
                 ) -> torch.Tensor:     # N, K
 
-  # degree = check_sh_degree(params)
-  # assert degree <= 3 and degree >= 0, f"SH degree must be between 0 and 3, got {degree}"
+  degree = check_sh_degree(params)
+  assert degree <= 3 and degree >= 0, f"SH degree must be between 0 and 3, got {degree}"
 
-  coeffs = rsh_cart(dirs) # N, D
- 
-  # out = torch.einsum('nd,nkd->nk', coeffs, params)
-  out = torch.bmm(params, coeffs.unsqueeze(2))
+  rsh_cart = rsh_cart_n[degree]
+  coeffs = rsh_cart(dirs).to(params.dtype) # N, D
+
+  out = (params * coeffs.unsqueeze(1)).sum(dim=2)
   return torch.clamp(out + 0.5, 0., 1.)
 
 
 @beartype
-@torch.compile(dynamic=True)
+@torch.compile(dynamic=True, options=dict(max_autotune=True))
 def evaluate_sh_at(params:torch.Tensor,  # M, K, D where D = (degree + 1)^2
                 points:torch.Tensor,     # M, 3
                 
                 indexes:torch.Tensor,    # N
-                camera_pos:torch.Tensor # 3
-                ) -> torch.Tensor:    # N, K
+                camera_pos:torch.Tensor  # 3
+                ) -> torch.Tensor:       # N, K
 
   dirs = points[indexes] - camera_pos.unsqueeze(0)
   dirs = torch.nn.functional.normalize(dirs, dim=1)

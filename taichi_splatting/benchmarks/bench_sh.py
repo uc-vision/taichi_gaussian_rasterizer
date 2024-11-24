@@ -35,7 +35,7 @@ def bench_sh(args, module=spherical_harmonics):
     torch.manual_seed(args.seed)
 
     with torch.no_grad():
-      sh_features = torch.randn(args.n, 3, (args.degree+1)**2, device=args.device).to(args.device)
+      sh_features = torch.randn(args.n, 3, (args.degree+1)**2, device=args.device, dtype=torch.float16).to(args.device)
       points = torch.randn(args.n, 3, device=args.device).to(args.device)
 
       indexes = torch.arange(args.n, device=args.device)
@@ -61,10 +61,12 @@ def bench_sh(args, module=spherical_harmonics):
 def main():
   args = parse_args()
   
-  with torch.autocast(device_type=args.device, dtype=torch.float16):
+  with torch.amp.autocast(device_type=args.device, dtype=torch.float16):
     bench_sh(args, torch_lib.spherical_harmonics)
 
   bench_sh(args, spherical_harmonics)
+
+
 
 if __name__ == '__main__':
   main()
