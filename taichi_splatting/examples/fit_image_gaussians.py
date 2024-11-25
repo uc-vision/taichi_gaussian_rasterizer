@@ -163,8 +163,38 @@ class Trainer:
 
     return grad * 1e7
 
-  
+  def test(self, gaussians):
+      
+    """Run inference using the trained model."""
+    with torch.no_grad():
+            
+      grad = self.get_gradients(gaussians)
+      check_finite(grad, "grad")
 
+      inputs = flatten_tensorclass(grad)
+
+      with torch.enable_grad():
+        step = self.optimizer_mlp(inputs)
+        step = split_tensorclass(gaussians, step)
+    raster = self.render(gaussians-step)
+    psnr_value = psnr(self.ref_image, raster.image).item()
+    print(f"Test PSNR: {psnr_value:.4f}")
+    return raster.image
+        
+  # def test(self, gaussians,step_size=0.01,epoch_size=100):
+  #   for i in range(epoch_size):
+  #     grad = self.get_gradients(gaussians)
+  #     check_finite(grad, "grad")
+  #     # self.mlp_opt.zero_grad()
+
+  #     inputs = flatten_tensorclass(gaussians)
+
+  #     with torch.enable_grad():
+  #       step = self.optimizer_mlp(inputs)
+  #       step = split_tensorclass(gaussians, step)
+  #     # self.mlp_opt.step()
+  #     gaussians = gaussians - step * step_size
+  #   return gaussians
 
   def train_epoch(self, gaussians, step_size=0.01, epoch_size=100):
     metrics = []
@@ -267,6 +297,8 @@ def main():
     metrics['CPSNR'] = psnr(ref_image, image).item()
     metrics['n'] = gaussians.batch_size[0]
     metrics.update(train_metrics)
+    # for key, value in metrics.items():
+    #   print(f"{key}: {value}")
 
 
     for k, v in metrics.items():
