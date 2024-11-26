@@ -89,19 +89,7 @@ def main():
 
     trainer = Trainer(optimizer, optimizer_opt, ref_image, config, 
                         opacity_reg=cmd_args.opacity_reg, scale_reg=cmd_args.scale_reg)
-    # rendered_image = trainer.test(gaussians)
-
-    # # Display or save the rendered image
-    # rendered_image_np = (rendered_image.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
-    # output_path = "rendered_image.png"
-    # cv2.imwrite(output_path, rendered_image_np)
-    # print(f"Rendered image saved to {output_path}")
-
-    # # Optionally display the image
-    # display_image('Rendered Image', rendered_image)
-    # loss = torch.nn.functional.l1_loss(rendered_image, ref_image)
-    # graph = make_dot(loss, params=dict(optimizer.named_parameters()))
-    # graph.render("fit_image_computation_graph", format="png")
+    
     
     pbar = tqdm(total=cmd_args.iters)
     metrics = {}
@@ -115,23 +103,7 @@ def main():
     cv2.imwrite(output_path, rendered_image_np)
     metrics['CPSNR'] = psnr(ref_image, image).item()
     metrics['n'] = gaussians.batch_size[0]
-    # metrics.update(train_metrics)
     pbar.set_postfix(**metrics)
-        # Record metrics for plotting
-    # metrics['CPSNR'] = psnr(ref_image, image).item()
-    # metrics['n'] = gaussians.batch_size[0]
-        # metrics.update(train_metrics)
     
-    # for key, value in metrics.items():
-    #     print(f"{key}: {value}")
-
-
-    # for k, v in metrics.items():
-    #     if isinstance(v, float):
-    #         metrics[k] = f'{v:.4f}'
-    #     if isinstance(v, int):
-    #         metrics[k] = f'{v:4d}'
-
-    # pbar.set_postfix(**metrics)
 if __name__ == "__main__":
   main()
