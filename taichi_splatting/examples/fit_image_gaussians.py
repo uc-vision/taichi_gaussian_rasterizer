@@ -238,7 +238,6 @@ def main():
   TaichiQueue.init(arch=ti.cuda, log_level=ti.INFO,  
           debug=cmd_args.debug, device_memory_GB=0.1)
 
-  print(f'Image size: {w}x{h}')
 
   if cmd_args.show:
     cv2.namedWindow('rendered', cv2.WINDOW_NORMAL)
@@ -254,15 +253,13 @@ def main():
 
   # Create the MLP
   optimizer = mlp(inputs = channels, outputs=channels, 
-              hidden_channels=[128, 128, 128], 
+              hidden_channels=[128, 256, 512,1024], 
               activation=nn.ReLU,
               norm=partial(nn.LayerNorm, elementwise_affine=False),
-              # output_activation=nn.Tanh,
+              # output_activation=nn.LazyLinear,
               output_scale=1e-12
               )
   optimizer.to(device=device)
-
-  print(optimizer)
 
 
   optimizer = torch.compile(optimizer)

@@ -19,7 +19,7 @@ import argparse
 import numpy as np
 import torch.nn as nn
 import taichi as ti
-
+from torchviz import make_dot
 import torch
 from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
@@ -43,8 +43,8 @@ def main():
     torch.set_grad_enabled(False)
 
     # Path to the saved model and optimizer
-    PATH = 'checkpoint.pth'  # Replace with your checkpoint file
-    test_image_path = '/csse/users/pwl25/pear/images/DSC_1366_12kv2r16k_7.jpg'  # Replace with your test image path
+    PATH = 'checkpoint2.pth'  # Replace with your checkpoint file
+    test_image_path = '/csse/users/pwl25/pear/images/DSC_1356_12kv2r5k_11.jpg'  # Replace with your test image path
     ref_image = cv2.imread(test_image_path)
     assert ref_image is not None, f"Could not read image {test_image_path}"
 
@@ -68,16 +68,16 @@ def main():
     optimizer.to(device=device)
     optimizer = torch.compile(optimizer)
     optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)
+     
+    
 
     # Load weights and optimizer states
     checkpoint = torch.load(PATH, weights_only=False)
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     optimizer_opt.load_state_dict(checkpoint['optimizer_opt_state_dict'])
     epoch_size = checkpoint['epoch_size']
+    
     metrics = checkpoint['metrics']
-    # Load the saved optimizer state_dict
-    for param in optimizer.parameters():
-        print(param)
 
 
     # Set the model to evaluation mode
@@ -89,17 +89,48 @@ def main():
 
     trainer = Trainer(optimizer, optimizer_opt, ref_image, config, 
                         opacity_reg=cmd_args.opacity_reg, scale_reg=cmd_args.scale_reg)
-    rendered_image = trainer.test(gaussians)
+    # rendered_image = trainer.test(gaussians)
 
-    # Display or save the rendered image
-    rendered_image_np = (rendered_image.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
-    output_path = "rendered_image.png"
-    cv2.imwrite(output_path, rendered_image_np)
-    print(f"Rendered image saved to {output_path}")
+    # # Display or save the rendered image
+    # rendered_image_np = (rendered_image.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
+    # output_path = "rendered_image.png"
+    # cv2.imwrite(output_path, rendered_image_np)
+    # print(f"Rendered image saved to {output_path}")
 
-    # Optionally display the image
-    display_image('Rendered Image', rendered_image)
+    # # Optionally display the image
+    # display_image('Rendered Image', rendered_image)
+    # loss = torch.nn.functional.l1_loss(rendered_image, ref_image)
+    # graph = make_dot(loss, params=dict(optimizer.named_parameters()))
+    # graph.render("fit_image_computation_graph", format="png")
+    epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
+    pbar = tqdm(total=cmd_args.iters)
+    iteration = 0
+    for epoch_size in epochs:
+        metrics = {}
+        step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
+        gaussians, train_metrics = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
+        iteration += epoch_size
+        image = trainer.render(gaussians).image
+        if cmd_args.show:
+            display_image('rendered', image)
+
+        # Record metrics for plotting
+        metrics['CPSNR'] = psnr(ref_image, image).item()
+        metrics['n'] = gaussians.batch_size[0]
+        metrics.update(train_metrics)
+        # for key, value in metrics.items():
+        #   print(f"{key}: {value}")
 
 
+        for k, v in metrics.items():
+            if isinstance(v, float):
+                metrics[k] = f'{v:.4f}'
+            if isinstance(v, int):
+                metrics[k] = f'{v:4d}'
+
+        pbar.set_postfix(**metrics)
+
+        iteration += epoch_size
+        pbar.update(epoch_size)
 if __name__ == "__main__":
   main()
