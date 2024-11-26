@@ -91,19 +91,44 @@ def main():
                         opacity_reg=cmd_args.opacity_reg, scale_reg=cmd_args.scale_reg)
     
     
-    pbar = tqdm(total=cmd_args.iters)
-    metrics = {}
-    gaussians,train_metrics = trainer.test(gaussians)
+    # pbar = tqdm(total=cmd_args.iters)
+    # metrics = {}
+    # gaussians,train_metrics = trainer.test(gaussians)
         
-    image = trainer.render(gaussians).image
-    if cmd_args.show:
-        display_image('rendered', image)
-    output_path = "rendered_image.png"
-    rendered_image_np = (image.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
-    cv2.imwrite(output_path, rendered_image_np)
-    metrics['CPSNR'] = psnr(ref_image, image).item()
-    metrics['n'] = gaussians.batch_size[0]
-    pbar.set_postfix(**metrics)
+    # image = trainer.render(gaussians).image
+    # if cmd_args.show:
+    #     display_image('rendered', image)
+    # output_path = "rendered_image.png"
+    # rendered_image_np = (image.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
+    # cv2.imwrite(output_path, rendered_image_np)
+    # metrics['CPSNR'] = psnr(ref_image, image).item()
+    # metrics['n'] = gaussians.batch_size[0]
+    # pbar.set_postfix(**metrics)
+    epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
+    pbar = tqdm(total=cmd_args.iters)
+    iteration = 0
+    for epoch_size in epochs:
+        metrics = {}
+        step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
+        gaussians, train_metrics = trainer.test(gaussians, epoch_size=epoch_size, step_size=step_size)
+        iteration += epoch_size
+        image = trainer.render(gaussians).image
+        if cmd_args.show:
+            display_image('rendered', image)
+        # Record metrics for plotting
+        metrics['CPSNR'] = psnr(ref_image, image).item()
+        metrics['n'] = gaussians.batch_size[0]
+        metrics.update(train_metrics)
     
+        for k, v in metrics.items():
+            if isinstance(v, float):
+                metrics[k] = f'{v:.4f}'
+            if isinstance(v, int):
+                metrics[k] = f'{v:4d}'
+
+        pbar.set_postfix(**metrics)
+
+        iteration += epoch_size
+        pbar.update(epoch_size)
 if __name__ == "__main__":
   main()

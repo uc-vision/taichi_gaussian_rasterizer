@@ -150,7 +150,7 @@ class Trainer:
   def get_gradients(self, gaussians):
     gaussians = gaussians.clone()
     gaussians.requires_grad_(True)
-    self.render_step(gaussians)
+    metrics = self.render_step(gaussians)
     grad =  gaussians.grad
     
 
@@ -161,26 +161,28 @@ class Trainer:
       self.running_scales = lerp(0.999, self.running_scales, mean_abs_grad)
 
 
-    return grad * 1e7
+    return grad * 1e7, metrics
 
-  def test(self, gaussians,step_size=0.01):
+  def test(self, gaussians,step_size=0.01,epoch_size = 100):
       
     """Run inference using the trained model."""
-    with torch.enable_grad():
-            # Compute gradients
-      grad = self.get_gradients(gaussians)
-      check_finite(grad, "grad")
+    metrics = []
+    for i in range(epoch_size):
+      with torch.enable_grad():
+              # Compute gradients
+        grad,metric = self.get_gradients(gaussians)
+        check_finite(grad, "grad")
 
-      # Flatten gradients and predict updates using the MLP
-      inputs = flatten_tensorclass(grad)
+        # Flatten gradients and predict updates using the MLP
+        inputs = flatten_tensorclass(grad)
 
-      with torch.no_grad():
-        step = self.optimizer_mlp(inputs)
-        step = split_tensorclass(gaussians, step)
-        metrics = self.render(gaussians-step)
-      # Update Gaussians with the step
-      gaussians = gaussians - step * step_size
-    return gaussians, metrics
+        with torch.no_grad():
+          step = self.optimizer_mlp(inputs)
+          step = split_tensorclass(gaussians, step)
+          metrics.append(metric)
+        # Update Gaussians with the step
+        gaussians = gaussians - step * step_size
+    return gaussians, mean_dicts(metrics)
     
     
         
@@ -189,7 +191,7 @@ class Trainer:
     metrics = []
     for i in range(epoch_size):
 
-      grad = self.get_gradients(gaussians)
+      grad,_ = self.get_gradients(gaussians)
       check_finite(grad, "grad")
       self.mlp_opt.zero_grad()
 
