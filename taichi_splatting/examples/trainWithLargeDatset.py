@@ -133,7 +133,7 @@ def main():
             iteration += epoch_size
             pbar.update(epoch_size)
         
-        save_checkpoint(optimizer,optimizer_opt, metrics_history,epoch_size, filename="checkpoint2.pth")
+        save_checkpoint(optimizer,optimizer_opt, metrics_history,epoch_size, filename="checkpoint3.pth")
     # Plot training results
     # iterations, cpsnr_values = zip(*metrics_history)
     # plt.figure(figsize=(10, 6))

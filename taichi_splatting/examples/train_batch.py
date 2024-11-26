@@ -43,7 +43,13 @@ def parse_args():
   args = parser.parse_args()
   return args
 
-
+def initialize_gaussians(batch_size, image_size, n_gaussians, device):
+    """Initialize random Gaussians for a batch."""
+    gaussians = []
+    for _ in range(batch_size):
+        g = random_2d_gaussians(n_gaussians, image_size, alpha_range=(0.5, 1.0), scale_factor=1.0)
+        gaussians.append(g.to(device))
+    return gaussians
 
 def log_lerp(t, a, b):
   return math.exp(math.log(b) * t + math.log(a) * (1 - t))
@@ -103,7 +109,7 @@ class Trainer:
   def __init__(self, 
                optimizer_mlp:torch.nn.Module, 
                mlp_opt:torch.optim.Optimizer, 
-               ref_image:torch.Tensor,
+               ref_image: List[torch.Tensor],
                config:RasterConfig, 
                opacity_reg=0.0, 
                scale_reg=0.0):
@@ -115,37 +121,36 @@ class Trainer:
     self.opacity_reg = opacity_reg
     self.scale_reg = scale_reg
 
-    self.ref_image:torch.Tensor = ref_image
+    self.ref_image: List[torch.Tensor] = ref_image
     self.running_scales = None
 
-    
-  def render(self, gaussians):
-    h, w = self.ref_image.shape[:2]
-    
-    gaussians2d = project_gaussians2d(gaussians) 
-    raster = rasterize(gaussians2d=gaussians2d, 
-      depth=gaussians.z_depth.clamp(0, 1),
-      features=gaussians.feature, 
-      image_size=(w, h), 
-      config=self.config)
-    return raster
 
-  def render_step(self, gaussians):
-    with torch.enable_grad():
-      raster = self.render(gaussians)
+  def render(self, gaussians_batch):
+    h, w = self.ref_images.shape[1:3]
+    rendered_batch = []
+    for gaussians in gaussians_batch:
+        gaussians2d = project_gaussians2d(gaussians)
+        raster = rasterize(
+            gaussians2d=gaussians2d,
+            depth=gaussians.z_depth.clamp(0, 1),
+            features=gaussians.feature,
+            image_size=(w, h),
+            config=self.config
+        )
+        rendered_batch.append(raster.image)
+    return torch.stack(rendered_batch)
 
-      h, w = self.ref_image.shape[:2]
-      scale = torch.exp(gaussians.log_scaling) / min(w, h)
-      opacity_reg = self.opacity_reg * gaussians.opacity.mean()
-      scale_reg = self.scale_reg * scale.pow(2).mean()
-      depth_reg = 0.0 * gaussians.z_depth.sum()
 
-      l1 = torch.nn.functional.l1_loss(raster.image, self.ref_image)
+  def render_step(self, gaussians_batch):
+    """Compute loss for a batch."""
+    rendered_images = self.render(gaussians_batch)  # Render all images in batch
+    batch_loss = 0
+    for rendered_image, ref_image in zip(rendered_images, self.ref_images):
+        l1 = torch.nn.functional.l1_loss(rendered_image, ref_image)
+        batch_loss += l1
+    batch_loss /= len(gaussians_batch)  # Average loss over the batch
+    return batch_loss
 
-      loss = l1 + opacity_reg + scale_reg + depth_reg
-      loss.backward()
-
-      return dict(loss=loss.item(), opacity_reg=opacity_reg.item(), scale_reg=scale_reg.item())
 
   def get_gradients(self, gaussians):
     gaussians = gaussians.clone()
@@ -163,48 +168,62 @@ class Trainer:
 
     return grad * 1e7
 
-  def test(self, gaussians,step_size=0.01):
+  def test(self, gaussians):
       
     """Run inference using the trained model."""
     with torch.enable_grad():
-            # Compute gradients
+            
       grad = self.get_gradients(gaussians)
       check_finite(grad, "grad")
 
-      # Flatten gradients and predict updates using the MLP
       inputs = flatten_tensorclass(grad)
 
-      with torch.no_grad():
+    with torch.no_grad():
         step = self.optimizer_mlp(inputs)
         step = split_tensorclass(gaussians, step)
-        metrics = self.render(gaussians-step)
-      # Update Gaussians with the step
-      gaussians = gaussians - step * step_size
-    return gaussians, metrics
-    
-    
+    raster = self.render(gaussians-step)
+    psnr_value = psnr(self.ref_image, raster.image).item()
+    print(f"Test PSNR: {psnr_value:.4f}")
+    return raster.image
         
+  # def test(self, gaussians,step_size=0.01,epoch_size=100):
+  #   for i in range(epoch_size):
+  #     grad = self.get_gradients(gaussians)
+  #     check_finite(grad, "grad")
+  #     # self.mlp_opt.zero_grad()
 
-  def train_epoch(self, gaussians, step_size=0.01, epoch_size=100):
+  #     inputs = flatten_tensorclass(gaussians)
+
+  #     with torch.enable_grad():
+  #       step = self.optimizer_mlp(inputs)
+  #       step = split_tensorclass(gaussians, step)
+  #     # self.mlp_opt.step()
+  #     gaussians = gaussians - step * step_size
+  #   return gaussians
+
+  def train_epoch(self, gaussians_batch, step_size=0.01, epoch_size=100):
     metrics = []
     for i in range(epoch_size):
-
-      grad = self.get_gradients(gaussians)
-      check_finite(grad, "grad")
       self.mlp_opt.zero_grad()
+      loss = 0
+      step_batch= []
+      metrics_batch = []
+      for gaussians in gaussians_batch:
+        grad = self.get_gradients(gaussians)
+        check_finite(grad, "grad")
+        inputs = flatten_tensorclass(grad)
 
-      inputs = flatten_tensorclass(grad)
-
-      with torch.enable_grad():
-        step = self.optimizer_mlp(inputs)
-        step = split_tensorclass(gaussians, step)
-
-        metrics.append(self.render_step(gaussians - step))
+        with torch.enable_grad():
+          step = self.optimizer_mlp(inputs)
+          step = split_tensorclass(gaussians, step)
+          metrics_batch.append(self.render_step(gaussians - step))
+        step_batch.append(step* step_size)
+      metrics.append(mean_dicts(metrics_batch))
 
       self.mlp_opt.step()
-      gaussians = gaussians - step * step_size 
+      gaussians_batch = gaussians_batch - step_batch  
 
-    return gaussians, mean_dicts(metrics)
+    return gaussians_batch, mean_dicts(metrics)
 
 
 
@@ -249,7 +268,6 @@ def main():
               output_scale=1e-12
               )
   optimizer.to(device=device)
-
 
 
   optimizer = torch.compile(optimizer)

@@ -102,35 +102,36 @@ def main():
     # loss = torch.nn.functional.l1_loss(rendered_image, ref_image)
     # graph = make_dot(loss, params=dict(optimizer.named_parameters()))
     # graph.render("fit_image_computation_graph", format="png")
-    epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
+    
     pbar = tqdm(total=cmd_args.iters)
-    iteration = 0
-    for epoch_size in epochs:
-        metrics = {}
-        step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
-        gaussians, train_metrics = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
-        iteration += epoch_size
-        image = trainer.render(gaussians).image
-        if cmd_args.show:
-            display_image('rendered', image)
-
+    metrics = {}
+    gaussians,train_metrics = trainer.test(gaussians)
+        
+    image = trainer.render(gaussians).image
+    if cmd_args.show:
+        display_image('rendered', image)
+    output_path = "rendered_image.png"
+    rendered_image_np = (image.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
+    cv2.imwrite(output_path, rendered_image_np)
+    metrics['CPSNR'] = psnr(ref_image, image).item()
+    metrics['n'] = gaussians.batch_size[0]
+    # metrics.update(train_metrics)
+    pbar.set_postfix(**metrics)
         # Record metrics for plotting
-        metrics['CPSNR'] = psnr(ref_image, image).item()
-        metrics['n'] = gaussians.batch_size[0]
-        metrics.update(train_metrics)
-        # for key, value in metrics.items():
-        #   print(f"{key}: {value}")
+    # metrics['CPSNR'] = psnr(ref_image, image).item()
+    # metrics['n'] = gaussians.batch_size[0]
+        # metrics.update(train_metrics)
+    
+    # for key, value in metrics.items():
+    #     print(f"{key}: {value}")
 
 
-        for k, v in metrics.items():
-            if isinstance(v, float):
-                metrics[k] = f'{v:.4f}'
-            if isinstance(v, int):
-                metrics[k] = f'{v:4d}'
+    # for k, v in metrics.items():
+    #     if isinstance(v, float):
+    #         metrics[k] = f'{v:.4f}'
+    #     if isinstance(v, int):
+    #         metrics[k] = f'{v:4d}'
 
-        pbar.set_postfix(**metrics)
-
-        iteration += epoch_size
-        pbar.update(epoch_size)
+    # pbar.set_postfix(**metrics)
 if __name__ == "__main__":
   main()
