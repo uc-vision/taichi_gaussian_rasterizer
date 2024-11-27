@@ -43,7 +43,7 @@ def main():
     torch.set_grad_enabled(False)
 
     # Path to the saved model and optimizer
-    PATH = 'checkpoint2.pth'  # Replace with your checkpoint file
+    PATH = 'checkpoint_batch1.pth'  # Replace with your checkpoint file
     test_image_path = '/csse/users/pwl25/pear/images/DSC_1356_12kv2r5k_11.jpg'  # Replace with your test image path
     ref_image = cv2.imread(test_image_path)
     assert ref_image is not None, f"Could not read image {test_image_path}"

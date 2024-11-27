@@ -20,7 +20,7 @@ from taichi_splatting.rasterizer.function import rasterize
 
 from taichi_splatting.taichi_queue import TaichiQueue
 from taichi_splatting.tests.random_data import random_2d_gaussians
-from fit_image_gaussians import parse_args, log_lerp
+from fit_image_gaussians import parse_args, log_lerp,lerp,mean_dicts,psnr,display_image
 from taichi_splatting.torch_lib.util import check_finite
 import os
 import matplotlib.pyplot as plt
@@ -35,23 +35,29 @@ def save_checkpoint(optimizer,optimizer_opt, metrics_history,epoch_size, filenam
     }
     torch.save(checkpoint, filename)
     print(f"Checkpoint saved to {filename}")
+def element_sizes(t):
+  """ Get non batch sizes from a tensorclass"""
+ 
+  return {k:v.shape[2:] for k, v in t.items()}
 
-def split_tensorclass(t, flat_tensors:torch.Tensor):
+def split_tensorclass(t, flat_tensor:torch.Tensor):
   
     step =[]
-    for flat_tensor in flat_tensors:
+    
+    # print(f"flat tensors: {flat_tensor.shape}")
+    sizes = element_sizes(t)
+    # print(f"element size :{element_sizes}")
 
-        sizes = element_sizes(t)
-        splits = [np.prod(s) for s in sizes.values()]
-
-        tensors = torch.split(flat_tensor, splits, dim=1)
+    splits = [np.prod(s) for s in sizes.values()]
+    # print(f"split : {splits}")
+    tensors = torch.split(flat_tensor, splits, dim=2)
+    # print(f"tensor {tensors[0].shape}")
+    # print(t.batch_size)
         
-        step.append( t.__class__.from_dict(
-            {k: v.view(t.batch_size + s) 
-            for k, v, s in zip(sizes.keys(), tensors, sizes.values())},
-            batch_size=t.batch_size
-        ))
-    return torch.stack(step)
+    return t.__class__.from_dict(
+        {k: v.view(*t.batch_size , *s) 
+        for k, v, s in zip(sizes.keys(), tensors, sizes.values())},
+        batch_size=t.batch_size)
 
 
     
@@ -91,7 +97,7 @@ def initialize_gaussians(batch_size, image_size, n_gaussians, device):
 
 
 def flatten_tensorclass(t):
-  print(f"flatten Tensor : {t}")
+#   print(f"flatten Tensor : {t}")
   flat_tensor = torch.cat([v.view(v.shape[0],v.shape[1], -1) for v in t.values()], dim=2)
   return flat_tensor
 
@@ -106,20 +112,19 @@ class Trainer:
         
         self.optimizer_mlp = optimizer_mlp
         self.mlp_opt = mlp_opt
-
         self.config = config
         self.opacity_reg = opacity_reg
         self.scale_reg = scale_reg
-
         self.ref_image:torch.Tensor = ref_image
         self.running_scales = None
+
     def setRefImage(self,refimage):
         self.ref_image = refimage
 
     def render(self, gaussians_batch):
         """Render a batch of images."""
         rendered_batch = []
-        print(f"render : {gaussians_batch}")
+        # print(f"render : {gaussians_batch}")
         h, w = self.ref_image.shape[1:3]
         for gaussians in gaussians_batch:
             gaussians2d = project_gaussians2d(gaussians)
@@ -138,19 +143,15 @@ class Trainer:
     def render_step(self, gaussians_batch):
         """Compute the loss for a batch of images."""
         with torch.enable_grad():
-            print(f"render_step : {gaussians_batch}")
+            # print(f"render_step : {gaussians_batch}")
             rendered_images = self.render(gaussians_batch)
-            
-
-            
-
-
-
+            display_image('rendered', rendered_images[0])
             batch_loss = 0
             for rendered_image, ref_image in zip(rendered_images, self.ref_image):
+                # display_image('rendered', rendered_image)
                 h, w = self.ref_image[0].shape[:2]
                 scale = torch.exp(gaussians_batch.log_scaling) / min(w, h)
-                print(f"scale: {scale}")
+                # print(f"scale: {scale}")
                 opacity_reg = self.opacity_reg * gaussians_batch.opacity.mean()
                 scale_reg = self.scale_reg * scale.pow(2).mean()
                 depth_reg = 0.0 * gaussians_batch.z_depth.sum()
@@ -158,19 +159,20 @@ class Trainer:
                 loss  = l1 + opacity_reg + scale_reg + depth_reg
                 
                 batch_loss += loss
-            batch_loss /= len(gaussians_batch)
+            batch_loss  = batch_loss/len(gaussians_batch)
+            # print(len(gaussians_batch))
             batch_loss.backward()
         
             # Average loss over the batch
-        return batch_loss
+        return dict(loss=batch_loss.item(), opacity_reg=opacity_reg.item(), scale_reg=scale_reg.item())
 
 
     def get_gradients(self,  gaussian_):
-        print(f"get_gradient : {gaussian_}")
+        # print(f"get_gradient : {gaussian_}")
         gaussian_batch =  gaussian_.clone()
         gaussian_batch.requires_grad_(True)
         metrics = self.render_step( gaussian_batch)
-        print(f"gaussian_batch grad: {gaussian_batch.grad}")
+        # print(f"gaussian_batch grad: {gaussian_batch.grad}")
         grad = gaussian_batch.grad
         
 
@@ -188,16 +190,16 @@ class Trainer:
         metrics = []
         for _ in range(epoch_size):
             self.mlp_opt.zero_grad()
-            print(f"train_epoch : {gaussians_batch}")
+            # print(f"train_epoch : {gaussians_batch}")
             # Compute the batch loss
             grads,_ = self.get_gradients(gaussians_batch)
             check_finite(grads, "grad")
             inputs = flatten_tensorclass(grads)
-            print(f"inputs:{inputs.shape}")
+            # print(f"inputs:{inputs.shape}")
             
             with torch.enable_grad():
                 step = self.optimizer_mlp(inputs)
-                print(f"step: {step}")
+                # print(f"step2: {step.shape}")
                 step = split_tensorclass(gaussians_batch, step)
                 metrics.append(self.render_step(gaussians_batch - step))
             # Update Gaussians
@@ -206,7 +208,7 @@ class Trainer:
             self.mlp_opt.step()
 
             
-        return gaussians_batch, {"avg_loss": np.mean(metrics)}
+        return gaussians_batch, mean_dicts(metrics)
 
 
 def main():
@@ -221,7 +223,7 @@ def main():
 
     assert image_files, f'No valid image files found in {dataset_folder}'
 
-    batch_size = 4
+    batch_size = cmd_args.batch_size
     batches = [image_files[i:i + batch_size] for i in range(0, len(image_files), batch_size)]
     
 
@@ -236,10 +238,9 @@ def main():
     sample_gaussian = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=1.0).to(torch.device('cuda:0'))
     
     # Create MLP and optimizer
-    channel = sum([np.prod(v.shape[1:], dtype=int) for k, v in sample_gaussian.items()])
-    print(f"channel: {channel}")
-    channels = channel * batch_size
-    print(f"channels: {channels}")
+    channels = sum([np.prod(v.shape[1:], dtype=int) for k, v in sample_gaussian.items()])
+    # print(f"channels: {channels}")
+    
 
     # Create the MLP
     optimizer = mlp(inputs=channels, outputs=channels,
@@ -254,19 +255,39 @@ def main():
     epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
     config = RasterConfig()
     trainer = Trainer(optimizer, optimizer_opt, None, config,opacity_reg=cmd_args.opacity_reg, scale_reg=cmd_args.scale_reg)
-    iteration = 0
-    for batch_files in batches:
+    pbar_batch = tqdm(total=len(batches),desc="Overall Progress")
+    batch_i = 0
+    for batch_i, batch_files in enumerate(batches, start=1):  
         trainer.setRefImage(load_batch_images(batch_files, device))
-        
+        pbar = tqdm(total=cmd_args.iters,desc=f"Batch {batch_i}/{len(batches)}")
+        iteration = 0
         gaussians_batch = initialize_gaussians(batch_size, (w, h), n_gaussians, device)
         for  epoch_size in epochs:
             metrics = {}
             step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
             gaussians_batch, train_metrics = trainer.train_epoch(gaussians_batch, step_size, epoch_size)
             iteration += epoch_size
-            metrics['CPSNR'] = psnr(ref_image, image).item()
-            metrics['n'] = gaussians.batch_size[0]
+            image = trainer.render(gaussians_batch)[0]
+            if cmd_args.show:
+                display_image('rendered', image)
+            # metrics['CPSNR'] = psnr(ref_image, image).item()
+            metrics['n'] = gaussians_batch.batch_size[0]
             metrics.update(train_metrics)
-        print(f"Metrics: {metrics}")
+            for k, v in metrics.items():
+                if isinstance(v, float):
+                    metrics[k] = f'{v:.4f}'
+                if isinstance(v, int):
+                    metrics[k] = f'{v:4d}'
+
+            pbar.set_postfix(**metrics)
+            iteration += epoch_size
+            pbar.update(epoch_size)
+        save_checkpoint(optimizer,optimizer_opt, metrics,batch_i, filename="checkpoint_batch2.pth")
+        pbar.close()
+
+    # Update the overall progress bar
+        pbar_batch.update(1)
+
+        # print(f"Metrics: {metrics}")
 
 main()

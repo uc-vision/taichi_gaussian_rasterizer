@@ -26,9 +26,10 @@ def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('image_file', type=str)
   parser.add_argument('--seed', type=int, default=0)
-
+  parser.add_argument('save_checkpoint', type=str, default= "checkpoint_.pth")
   parser.add_argument('--n', type=int, default=20)
   parser.add_argument('--iters', type=int, default=20)
+  parser.add_argument('--batch_size', type=int, default=20)
 
   parser.add_argument('--epoch', type=int, default=20, help='base epoch size (increases with t)')
 
@@ -241,6 +242,7 @@ def main():
 
   gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=1.0).to(torch.device('cuda:0')) 
   channels = sum([np.prod(v.shape[1:], dtype=int) for k, v in gaussians.items()])
+  print(channels)
 
 
   # Create the MLP

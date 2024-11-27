@@ -93,7 +93,7 @@ def main():
         pbar = tqdm(total=cmd_args.iters)
         iteration = 0
         for epoch_size in epochs:
-            metrics = {}
+            metric = {}
             step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
             gaussians, train_metrics = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
             iteration += epoch_size
@@ -102,19 +102,19 @@ def main():
                 display_image('rendered', image)
 
     
-            metrics['CPSNR'] = psnr(ref_image, image).item()
-            metrics['n'] = gaussians.batch_size[0]
-            metrics.update(train_metrics)
+            metric['CPSNR'] = psnr(ref_image, image).item()
+            metric['n'] = gaussians.batch_size[0]
+            metric.update(train_metrics)
        
 
 
-            for k, v in metrics.items():
+            for k, v in metric.items():
                 if isinstance(v, float):
-                    metrics[k] = f'{v:.4f}'
+                    metric[k] = f'{v:.4f}'
                 if isinstance(v, int):
-                    metrics[k] = f'{v:4d}'
+                    metric[k] = f'{v:4d}'
 
-            pbar.set_postfix(**metrics)
+            pbar.set_postfix(**metric)
 
             iteration += epoch_size
             pbar.update(epoch_size)

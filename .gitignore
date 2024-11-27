@@ -7,7 +7,7 @@ __pycache__/
 *.so
 
 # Pytorch models
-*.pth
+
 *.pt
 
 # Distribution / packaging
