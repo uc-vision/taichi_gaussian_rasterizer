@@ -196,6 +196,7 @@ class Trainer:
       self.mlp_opt.zero_grad()
 
       inputs = flatten_tensorclass(grad)
+      print(inputs.shape)
 
       with torch.enable_grad():
         step = self.optimizer_mlp(inputs)
