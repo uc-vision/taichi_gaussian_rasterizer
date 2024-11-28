@@ -26,7 +26,7 @@ def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('image_file', type=str)
   parser.add_argument('--seed', type=int, default=0)
-  parser.add_argument('save_checkpoint', type=str, default= "checkpoint_.pth")
+  parser.add_argument('--save_checkpoint', type=str, default= "checkpoint_.pth")
   parser.add_argument('--n', type=int, default=20)
   parser.add_argument('--iters', type=int, default=20)
   parser.add_argument('--batch_size', type=int, default=20)
@@ -282,6 +282,7 @@ def main():
     gaussians, train_metrics = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
 
     image = trainer.render(gaussians).image
+    print(image.shape)
     if cmd_args.show:
       display_image('rendered', image)
 

@@ -51,9 +51,9 @@ def main():
     TaichiQueue.init(arch=ti.cuda, log_level=ti.INFO,
                      debug=cmd_args.debug, device_memory_GB=0.1)
 
-    metrics_history = []  # To store metrics for plotting
-    ref_image = cv2.imread('/csse/users/pwl25/pear/images/DSC_1366_12kv2r16k_7.jpg')
-    # assert ref_image is not None, f'Could not read {'/csse/users/pwl25/pear/images/DSC_1366_12kv2r16k_7.jpg'}'
+    metrics = []  # To store metrics for plotting
+    ref_image = cv2.imread(image_files[0])
+    assert ref_image is not None, f'Could not read {image_files[0]}'
 
     h, w = ref_image.shape[:2]
     gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=1.0).to(torch.device('cuda:0'))
@@ -119,7 +119,7 @@ def main():
             iteration += epoch_size
             pbar.update(epoch_size)
         
-        save_checkpoint(optimizer,optimizer_opt, metrics_history,epoch_size, filename="checkpoint3.pth")
+        save_checkpoint(optimizer,optimizer_opt, metrics,epoch_size, filename="checkpoint3.pth")
    
 
 

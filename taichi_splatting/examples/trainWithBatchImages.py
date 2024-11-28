@@ -53,11 +53,12 @@ def split_tensorclass(t, flat_tensor:torch.Tensor):
     tensors = torch.split(flat_tensor, splits, dim=2)
     # print(f"tensor {tensors[0].shape}")
     # print(t.batch_size)
-        
     return t.__class__.from_dict(
-        {k: v.view(*t.batch_size , *s) 
-        for k, v, s in zip(sizes.keys(), tensors, sizes.values())},
-        batch_size=t.batch_size)
+    {
+        k: v.view(t.batch_size + s)  # Reshape tensor `v`
+        for k, v, s in zip(sizes.keys(), tensors, sizes.values())  # Iterate over field names, tensors, and their sizes
+    },
+    batch_size=t.batch_size)  # Set batch size for the new tensorclass)
 
 
     
@@ -136,6 +137,7 @@ class Trainer:
                 config=self.config,
             )
             rendered_batch.append(raster.image)
+        
         return torch.stack(rendered_batch)  # Shape: [batch_size, H, W, C]
 
 
@@ -156,10 +158,10 @@ class Trainer:
                 scale_reg = self.scale_reg * scale.pow(2).mean()
                 depth_reg = 0.0 * gaussians_batch.z_depth.sum()
                 l1 = torch.nn.functional.l1_loss(rendered_image, ref_image)
-                loss  = l1 + opacity_reg + scale_reg + depth_reg
+                loss  = l1 + opacity_reg*2 + scale_reg*2 + depth_reg
                 
-                batch_loss += loss
-            batch_loss  = batch_loss/len(gaussians_batch)
+                batch_loss = batch_loss+ loss
+            # batch_loss  = batch_loss
             # print(len(gaussians_batch))
             batch_loss.backward()
         
@@ -186,7 +188,7 @@ class Trainer:
 
         return grad * 1e7, metrics
 
-    def train_epoch(self, gaussians_batch, step_size=0.01, epoch_size=100):
+    def train_epoch(self, gaussians_batch, step_size=10, epoch_size=100):
         metrics = []
         for _ in range(epoch_size):
             self.mlp_opt.zero_grad()
@@ -199,8 +201,10 @@ class Trainer:
             
             with torch.enable_grad():
                 step = self.optimizer_mlp(inputs)
-                # print(f"step2: {step.shape}")
+                
                 step = split_tensorclass(gaussians_batch, step)
+                
+                # print(f"step2: {step}")
                 metrics.append(self.render_step(gaussians_batch - step))
             # Update Gaussians
             gaussians_batch = gaussians_batch - step * step_size
@@ -228,7 +232,7 @@ def main():
     
 
     # Initialize Gaussians and Trainer
-    ref_image = cv2.imread('/csse/users/pwl25/pear/images/DSC_1366_12kv2r16k_7.jpg')
+    ref_image = cv2.imread(image_files[0])
     # assert ref_image is not None, f'Could not read {'/csse/users/pwl25/pear/images/DSC_1366_12kv2r16k_7.jpg'}'
 
     h, w = ref_image.shape[:2]  # Replace with your image dimensions
@@ -244,10 +248,10 @@ def main():
 
     # Create the MLP
     optimizer = mlp(inputs=channels, outputs=channels,
-                    hidden_channels=[128, 128, 128],
+                    hidden_channels=[128, 256, 128],
                     activation=nn.ReLU,
                     norm=partial(nn.LayerNorm, elementwise_affine=False),
-                    output_scale=1e-12
+                    output_scale=1e-6
                     )
     optimizer.to(device=device)
     optimizer = torch.compile(optimizer)
@@ -264,12 +268,13 @@ def main():
         gaussians_batch = initialize_gaussians(batch_size, (w, h), n_gaussians, device)
         for  epoch_size in epochs:
             metrics = {}
-            step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
+            step_size = log_lerp(min(iteration / 100., 1.0), 0.1, 1.0)
             gaussians_batch, train_metrics = trainer.train_epoch(gaussians_batch, step_size, epoch_size)
             iteration += epoch_size
-            image = trainer.render(gaussians_batch)[0]
-            if cmd_args.show:
-                display_image('rendered', image)
+            image = trainer.render(gaussians_batch)
+            print(image.shape)
+            # if cmd_args.show:
+            #     display_image('rendered', image)
             # metrics['CPSNR'] = psnr(ref_image, image).item()
             metrics['n'] = gaussians_batch.batch_size[0]
             metrics.update(train_metrics)
