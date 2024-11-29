@@ -176,6 +176,8 @@ class Trainer:
 
         # Flatten gradients and predict updates using the MLP
         inputs = flatten_tensorclass(grad)
+        input2 = flatten_tensorclass(gaussians)
+        inputs = torch.cat([inputs, input2], dim=1)
 
         with torch.no_grad():
           step = self.optimizer_mlp(inputs)
@@ -197,7 +199,10 @@ class Trainer:
       self.mlp_opt.zero_grad()
 
       inputs = flatten_tensorclass(grad)
-      print(inputs.shape)
+      inputs2 = flatten_tensorclass(gaussians)
+      inputs = torch.cat([inputs,  inputs2], dim=1)
+      # print
+      # print(inputs.shape)
 
       with torch.enable_grad():
         step = self.optimizer_mlp(inputs)
@@ -242,11 +247,11 @@ def main():
 
   gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=1.0).to(torch.device('cuda:0')) 
   channels = sum([np.prod(v.shape[1:], dtype=int) for k, v in gaussians.items()])
-  print(channels)
+  print(f"channel {channels}")
 
 
   # Create the MLP
-  optimizer = mlp(inputs = channels, outputs=channels, 
+  optimizer = mlp(inputs = channels*2, outputs=channels, 
               hidden_channels=[128, 256, 512,1024], 
               activation=nn.ReLU,
               norm=partial(nn.LayerNorm, elementwise_affine=False),
@@ -282,7 +287,7 @@ def main():
     gaussians, train_metrics = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
 
     image = trainer.render(gaussians).image
-    print(image.shape)
+    # print(image.shape)
     if cmd_args.show:
       display_image('rendered', image)
 

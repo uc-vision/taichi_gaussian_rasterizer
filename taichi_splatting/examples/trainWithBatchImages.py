@@ -24,7 +24,26 @@ from fit_image_gaussians import parse_args, log_lerp,lerp,mean_dicts,psnr,displa
 from taichi_splatting.torch_lib.util import check_finite
 import os
 import matplotlib.pyplot as plt
+def psnr_batch_efficient(batch_a, batch_b):
+    """
+    Calculate PSNR for a batch of images more efficiently.
 
+    Args:
+    - batch_a: Tensor of shape [batch_size, channels, height, width] representing predicted images.
+    - batch_b: Tensor of shape [batch_size, channels, height, width] representing reference images.
+
+    Returns:
+    - Average PSNR for the batch.
+    """
+    # Calculate MSE for each image in the batch
+    mse = torch.nn.functional.mse_loss(batch_a, batch_b, reduction='none')
+    mse_per_image = mse.view(mse.size(0), -1).mean(dim=1)
+
+    # Compute PSNR for each image in the batch
+    psnr_per_image = 10 * torch.log10(1 / mse_per_image)
+
+    # Return the average PSNR across the batch
+    return psnr_per_image.mean()
 def save_checkpoint(optimizer,optimizer_opt, metrics_history,epoch_size, filename="checkpoint.pth"):
     checkpoint = {
         'epoch_size': epoch_size,
@@ -34,7 +53,7 @@ def save_checkpoint(optimizer,optimizer_opt, metrics_history,epoch_size, filenam
         
     }
     torch.save(checkpoint, filename)
-    print(f"Checkpoint saved to {filename}")
+    # print(f"Checkpoint saved to {filename}")
 def element_sizes(t):
   """ Get non batch sizes from a tensorclass"""
  
@@ -68,6 +87,7 @@ def split_tensorclass(t, flat_tensor:torch.Tensor):
 def batch_images(image_files, batch_size):
     """Split image file paths into batches."""
     for i in range(0, len(image_files), batch_size):
+        # print(i)
         yield image_files[i:i + batch_size]
 def load_batch_images(image_batch, device):
     """Load and preprocess a batch of images."""
@@ -79,7 +99,7 @@ def load_batch_images(image_batch, device):
         images.append(img)
     
     # Stack images into a single tensor (batch_size, H, W, C)
-    return torch.stack(images)
+    return torch.stack(images,dim=0)
 
 def initialize_gaussians(batch_size, image_size, n_gaussians, device):
     """
@@ -213,7 +233,29 @@ class Trainer:
 
             
         return gaussians_batch, mean_dicts(metrics)
+    def test(self, gaussians,step_size=0.01,epoch_size = 100):
+      
+        """Run inference using the trained model."""
+        metrics = []
+        for i in range(epoch_size):
+            with torch.enable_grad():
+                    # Compute gradients
+                grad,metric = self.get_gradients(gaussians)
+                check_finite(grad, "grad")
 
+                # Flatten gradients and predict updates using the MLP
+                inputs = flatten_tensorclass(grad)
+                input2 = flatten_tensorclass(gaussians)
+                inputs = torch.cat([inputs, input2], dim=1)
+
+                with torch.no_grad():
+                    step = self.optimizer_mlp(inputs)
+                    step = split_tensorclass(gaussians, step)
+                    metrics.append(metric)
+                # Update Gaussians with the step
+                gaussians = gaussians - step * step_size
+        return gaussians, mean_dicts(metrics)
+   
 
 def main():
     cmd_args = parse_args()
@@ -251,7 +293,7 @@ def main():
                     hidden_channels=[128, 256, 128],
                     activation=nn.ReLU,
                     norm=partial(nn.LayerNorm, elementwise_affine=False),
-                    output_scale=1e-6
+                    output_scale=1e-12
                     )
     optimizer.to(device=device)
     optimizer = torch.compile(optimizer)
@@ -272,10 +314,10 @@ def main():
             gaussians_batch, train_metrics = trainer.train_epoch(gaussians_batch, step_size, epoch_size)
             iteration += epoch_size
             image = trainer.render(gaussians_batch)
-            print(image.shape)
+            # print(image.shape)
             # if cmd_args.show:
             #     display_image('rendered', image)
-            # metrics['CPSNR'] = psnr(ref_image, image).item()
+            metrics['CPSNR'] = psnr_batch_efficient(trainer.ref_image, image).item()
             metrics['n'] = gaussians_batch.batch_size[0]
             metrics.update(train_metrics)
             for k, v in metrics.items():
@@ -287,7 +329,8 @@ def main():
             pbar.set_postfix(**metrics)
             iteration += epoch_size
             pbar.update(epoch_size)
-        save_checkpoint(optimizer,optimizer_opt, metrics,batch_i, filename="checkpoint_batch2.pth")
+            save_checkpoint(optimizer,optimizer_opt, metrics,batch_i, filename="checkpoint_batch3.pth")
+        
         pbar.close()
 
     # Update the overall progress bar
