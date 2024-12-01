@@ -9,8 +9,8 @@ from taichi_splatting.examples.mlp import mlp
 from taichi_splatting.rasterizer.function import rasterize
 from taichi_splatting.taichi_queue import TaichiQueue
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
-from fit_image_gaussians import parse_args, Trainer, psnr,partial,log_lerp,psnr,display_image
-
+from fit_image_gaussians import parse_args, psnr,partial,log_lerp,psnr,display_image
+from trainWithBatchImages import Trainer
 from taichi_splatting.tests.random_data import random_2d_gaussians
 from functools import partial
 import math
@@ -26,6 +26,7 @@ from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
 from taichi_splatting.examples.mlp import mlp
 from taichi_splatting.misc.renderer2d import project_gaussians2d
+from trainWithBatchImages import load_batch_images,initialize_gaussians
 
 from taichi_splatting.rasterizer.function import rasterize
 
@@ -44,11 +45,14 @@ def main():
     torch.set_grad_enabled(False)
 
     # Path to the saved model and optimizer
-    PATH = 'checkpoint_batch2.pth'  # Replace with your checkpoint file
+    PATH = 'Batch_training_.pth'  # Replace with your checkpoint file
     test_image_path = '/csse/users/pwl25/pear/images/DSC_1356_12kv2r5k_11.jpg'  # Replace with your test image path
     ref_image = cv2.imread(test_image_path)
     assert ref_image is not None, f"Could not read image {test_image_path}"
-
+    image_files = [test_image_path]
+    batch_size = 1
+    batches = [image_files[i:i + batch_size] for i in range(0, len(image_files), batch_size)]
+    
     # Preprocess the image (resize, normalize, etc.)
     h, w = ref_image.shape[:2]
     TaichiQueue.init(arch=ti.cuda, log_level=ti.INFO,  
@@ -57,6 +61,8 @@ def main():
     torch.cuda.random.manual_seed(cmd_args.seed)
     # Load the model and optimizer
     gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=1.0).to(torch.device('cuda:0')) 
+    
+    print(gaussians.shape)
     channels = sum([np.prod(v.shape[1:], dtype=int) for k, v in gaussians.items()])
 
     optimizer = mlp(inputs = channels, outputs=channels, 
@@ -87,37 +93,45 @@ def main():
     # Load an image for testing
     
     ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255 
+    ref_image = ref_image.unsqueeze(0)
     config = RasterConfig()
-
     trainer = Trainer(optimizer, optimizer_opt, ref_image, config, 
                         opacity_reg=cmd_args.opacity_reg, scale_reg=cmd_args.scale_reg)
-    
-    
+    n_gaussians = cmd_args.n
     epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
     pbar = tqdm(total=cmd_args.iters)
     iteration = 0
-    for epoch_size in epochs:
-        metrics = {}
-        step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
-        gaussians, train_metrics = trainer.test(gaussians, epoch_size=epoch_size, step_size=step_size)
-        iteration += epoch_size
-        image = trainer.render(gaussians).image
-        if cmd_args.show:
-            display_image('rendered', image)
-        metrics['CPSNR'] = psnr(ref_image, image).item()
-        metrics['n'] = gaussians.batch_size[0]
-        metrics.update(train_metrics)
-    
-        for k, v in metrics.items():
-            if isinstance(v, float):
-                metrics[k] = f'{v:.4f}'
-            if isinstance(v, int):
-                metrics[k] = f'{v:4d}'
+    for batch_i, batch_files in enumerate(batches, start=1):  
+        trainer.setRefImage(load_batch_images(batch_files, device))
+        pbar = tqdm(total=cmd_args.iters,desc=f"Batch {batch_i}/{len(batches)}")
+        iteration = 0
+        gaussians_batch = initialize_gaussians(batch_size, (w, h), n_gaussians, device)
+        print(gaussians_batch.shape)
+        for epoch_size in epochs:
+            metrics = {}
+        
+            step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
+            gaussians_batch, train_metrics = trainer.test(gaussians_batch, epoch_size=epoch_size, step_size=step_size)
+            iteration += epoch_size
 
-        pbar.set_postfix(**metrics)
+            image = trainer.render(gaussians_batch)
+            if cmd_args.show:
+                display_image('rendered', image)
+            metrics['CPSNR'] = psnr(ref_image, image).item()
+            metrics['n'] = gaussians.batch_size[0]
+            metrics.update(train_metrics)
+        
+            for k, v in metrics.items():
+                if isinstance(v, float):
+                    metrics[k] = f'{v:.4f}'
+                if isinstance(v, int):
+                    metrics[k] = f'{v:4d}'
 
-        iteration += epoch_size
-        pbar.update(epoch_size)
+            pbar.set_postfix(**metrics)
+
+            iteration += epoch_size
+            pbar.update(epoch_size)
+
 
 if __name__ == "__main__":
   main()

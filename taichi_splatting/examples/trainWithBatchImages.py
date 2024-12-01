@@ -245,8 +245,8 @@ class Trainer:
 
                 # Flatten gradients and predict updates using the MLP
                 inputs = flatten_tensorclass(grad)
-                input2 = flatten_tensorclass(gaussians)
-                inputs = torch.cat([inputs, input2], dim=1)
+                # input2 = flatten_tensorclass(gaussians)
+                # inputs = torch.cat([inputs, input2], dim=1)
 
                 with torch.no_grad():
                     step = self.optimizer_mlp(inputs)
@@ -308,6 +308,7 @@ def main():
         pbar = tqdm(total=cmd_args.iters,desc=f"Batch {batch_i}/{len(batches)}")
         iteration = 0
         gaussians_batch = initialize_gaussians(batch_size, (w, h), n_gaussians, device)
+        # print(gaussians_batch.shape)
         for  epoch_size in epochs:
             metrics = {}
             step_size = log_lerp(min(iteration / 100., 1.0), 0.1, 1.0)
@@ -329,7 +330,7 @@ def main():
             pbar.set_postfix(**metrics)
             iteration += epoch_size
             pbar.update(epoch_size)
-            save_checkpoint(optimizer,optimizer_opt, metrics,batch_i, filename="checkpoint_batch3.pth")
+            save_checkpoint(optimizer,optimizer_opt, metrics,batch_i, filename="Batch_training_.pth")
         
         pbar.close()
 
@@ -337,5 +338,5 @@ def main():
         pbar_batch.update(1)
 
         # print(f"Metrics: {metrics}")
-
-main()
+if __name__ == "__main__":
+  main()
