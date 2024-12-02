@@ -5,7 +5,7 @@ import torch.nn as nn
 from taichi_splatting.misc.renderer2d import point_covariance
 import torch
 import torch.nn as nn
-from torch.nn import TransformerEncoder, TransformerEncoderLayer
+from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
 from typing import List
 from .renderer2d import Gaussians2D
 
@@ -108,6 +108,9 @@ class TransformerMLP(nn.Module):
         # Create a Transformer Encoder using the single layer and specifying the number of layers
         self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers=num_layers)
         
+        # Additional Multi-Head Self Attention Layer
+        self.attention = MultiheadAttention(embed_dim=input_dim, num_heads=num_heads, dropout=dropout_prob)
+        
         # Feed-Forward Layers with Dropout
         self.ffn = nn.Sequential(
             nn.Linear(input_dim, hidden_channels[0]),
@@ -136,7 +139,13 @@ class TransformerMLP(nn.Module):
         # Layer Normalization
         x = self.layer_norm(x)
 
-        # Feed-Forward Pass
+        # Apply Multi-Head Attention
+        attn_output, _ = self.attention(x, x, x)
+        
+        # Residual Connection with Attention Output
+        x = x + attn_output
+        
+        # Apply Feed-Forward Network
         output = self.ffn(x)
         
         return output
