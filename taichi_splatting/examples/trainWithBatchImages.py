@@ -13,7 +13,7 @@ import taichi as ti
 import torch
 from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
-from taichi_splatting.examples.mlp import mlp,TransformerMLP
+from taichi_splatting.examples.mlp import mlp,TransformerMLP,UNet
 from taichi_splatting.misc.renderer2d import project_gaussians2d
 
 from taichi_splatting.rasterizer.function import rasterize
@@ -293,16 +293,13 @@ def main():
     
 
     # Create the MLP
-    # optimizer = mlp(inputs=channels, outputs=channels,
-    #                 hidden_channels=[128, 256, 128],
-    #                 activation=nn.ReLU,
-    #                 norm=partial(nn.LayerNorm, elementwise_affine=False),
-    #                 output_scale=1e-12
-    #                 )
-    optimizer = TransformerMLP(input_dim=channels, output_dim=channels,
-                    hidden_channels=[128, 512,256, 128],
-                    num_heads=1, num_layers=2
+    optimizer = mlp(inputs=channels, outputs=channels,
+                    hidden_channels=[128, 256, 128],
+                    activation=nn.ReLU,
+                    norm=partial(nn.LayerNorm, elementwise_affine=False),
+                    output_scale=1e-12
                     )
+    
     optimizer.to(device=device)
     optimizer = torch.compile(optimizer)
     optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)
