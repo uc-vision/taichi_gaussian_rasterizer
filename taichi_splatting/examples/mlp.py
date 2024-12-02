@@ -3,7 +3,10 @@ import torch
 import torch.nn as nn
 
 from taichi_splatting.misc.renderer2d import point_covariance
-
+import torch
+import torch.nn as nn
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
+from typing import List
 from .renderer2d import Gaussians2D
 
 def kl_divergence(means1:torch.Tensor, means2:torch.Tensor, cov1:torch.Tensor, cov2:torch.Tensor) -> torch.Tensor:
@@ -86,3 +89,54 @@ def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, norm=nn
       for i in range(len(hidden_channels) - 1)],
     output_layer,
   )   
+
+
+class TransformerMLP(nn.Module):
+    def __init__(self, input_dim: int, output_dim: int, hidden_channels: List[int], 
+                 num_heads: int = 4, num_layers: int = 4, activation=nn.ReLU, dropout_prob: float = 0.1):
+        super(TransformerMLP, self).__init__()
+        
+        # Transformer Encoder Layer
+        encoder_layer = TransformerEncoderLayer(
+            d_model=input_dim,   # The number of expected features in the input
+            nhead=num_heads,     # Number of attention heads
+            dim_feedforward=hidden_channels[0],  # Feedforward hidden size
+            activation=activation(),  # Activation function
+            dropout=dropout_prob  # Dropout for transformer encoder layer
+        )
+        
+        # Create a Transformer Encoder using the single layer and specifying the number of layers
+        self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers=num_layers)
+        
+        # Feed-Forward Layers with Dropout
+        self.ffn = nn.Sequential(
+            nn.Linear(input_dim, hidden_channels[0]),
+            activation(),
+            nn.Dropout(dropout_prob),  # Dropout Layer
+            nn.Linear(hidden_channels[0], output_dim),
+        )
+        
+        # Layer Normalization
+        self.layer_norm = nn.LayerNorm(input_dim)
+        
+        # Residual Connection with Dropout
+        self.residual = nn.Sequential(
+            nn.Linear(input_dim, input_dim),
+            activation(),
+            nn.Dropout(dropout_prob)  # Dropout for residual connection
+        )
+
+    def forward(self, x):
+        # Transformer Encoder Pass
+        transformer_output = self.transformer_encoder(x)
+        
+        # Residual Connection (Skip Connection)
+        x = x + transformer_output
+        
+        # Layer Normalization
+        x = self.layer_norm(x)
+
+        # Feed-Forward Pass
+        output = self.ffn(x)
+        
+        return output

@@ -13,7 +13,7 @@ import taichi as ti
 import torch
 from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
-from taichi_splatting.examples.mlp import mlp
+from taichi_splatting.examples.mlp import mlp,TransformerMLP
 from taichi_splatting.misc.renderer2d import project_gaussians2d
 
 from taichi_splatting.rasterizer.function import rasterize
@@ -24,6 +24,7 @@ from fit_image_gaussians import parse_args, log_lerp,lerp,mean_dicts,psnr,displa
 from taichi_splatting.torch_lib.util import check_finite
 import os
 import matplotlib.pyplot as plt
+import torch.nn.utils as nn_utils
 def psnr_batch_efficient(batch_a, batch_b):
     """
     Calculate PSNR for a batch of images more efficiently.
@@ -206,7 +207,7 @@ class Trainer:
             self.running_scales = lerp(0.999, self.running_scales, mean_abs_grad)
 
 
-        return grad * 1e7, metrics
+        return grad * 1e5, metrics
 
     def train_epoch(self, gaussians_batch, step_size=10, epoch_size=100):
         metrics = []
@@ -221,13 +222,16 @@ class Trainer:
             
             with torch.enable_grad():
                 step = self.optimizer_mlp(inputs)
-                
+                finite_mask = torch.isfinite(step)
+                step = torch.where(finite_mask, step, torch.zeros_like(step))
                 step = split_tensorclass(gaussians_batch, step)
                 
-                # print(f"step2: {step}")
+                # print(f"step2: {gaussians_batch - step}")
                 metrics.append(self.render_step(gaussians_batch - step))
             # Update Gaussians
             gaussians_batch = gaussians_batch - step * step_size
+
+            nn_utils.clip_grad_norm_(self.optimizer_mlp.parameters(), 1.0)
             
             self.mlp_opt.step()
 
@@ -289,15 +293,19 @@ def main():
     
 
     # Create the MLP
-    optimizer = mlp(inputs=channels, outputs=channels,
-                    hidden_channels=[128, 256, 128],
-                    activation=nn.ReLU,
-                    norm=partial(nn.LayerNorm, elementwise_affine=False),
-                    output_scale=1e-12
+    # optimizer = mlp(inputs=channels, outputs=channels,
+    #                 hidden_channels=[128, 256, 128],
+    #                 activation=nn.ReLU,
+    #                 norm=partial(nn.LayerNorm, elementwise_affine=False),
+    #                 output_scale=1e-12
+    #                 )
+    optimizer = TransformerMLP(input_dim=channels, output_dim=channels,
+                    hidden_channels=[128, 512,256, 128],
+                    num_heads=1, num_layers=2
                     )
     optimizer.to(device=device)
     optimizer = torch.compile(optimizer)
-    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)
+    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)
     epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
     config = RasterConfig()
     trainer = Trainer(optimizer, optimizer_opt, None, config,opacity_reg=cmd_args.opacity_reg, scale_reg=cmd_args.scale_reg)
@@ -311,7 +319,7 @@ def main():
         # print(gaussians_batch.shape)
         for  epoch_size in epochs:
             metrics = {}
-            step_size = log_lerp(min(iteration / 100., 1.0), 0.1, 1.0)
+            step_size = log_lerp(min(iteration / 10000., 1.0), 0.1, 1.0)
             gaussians_batch, train_metrics = trainer.train_epoch(gaussians_batch, step_size, epoch_size)
             iteration += epoch_size
             image = trainer.render(gaussians_batch)
@@ -330,8 +338,9 @@ def main():
             pbar.set_postfix(**metrics)
             iteration += epoch_size
             pbar.update(epoch_size)
-            save_checkpoint(optimizer,optimizer_opt, metrics,batch_i, filename="Batch_training_.pth")
+            save_checkpoint(optimizer,optimizer_opt, metrics,batch_i, filename="play.pth")
         
+            iteration += epoch_size
         pbar.close()
 
     # Update the overall progress bar
