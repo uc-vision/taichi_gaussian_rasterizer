@@ -13,7 +13,7 @@ import taichi as ti
 import torch
 from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
-from taichi_splatting.examples.mlp import mlp,TransformerMLP,UNet
+from taichi_splatting.examples.mlp import mlp,TransformerMLP
 from taichi_splatting.misc.renderer2d import project_gaussians2d
 
 from taichi_splatting.rasterizer.function import rasterize
@@ -294,15 +294,18 @@ def main():
 
     # Create the MLP
     optimizer = mlp(inputs=channels, outputs=channels,
-                    hidden_channels=[128, 256, 128],
+                    hidden_channels=[128, 256, 512,1024,128],
                     activation=nn.ReLU,
                     norm=partial(nn.LayerNorm, elementwise_affine=False),
                     output_scale=1e-12
                     )
-    
+    # optimizer = TransformerMLP(input_dim=channels, output_dim=channels,
+    #                 hidden_channels=[128],
+    #                 num_heads=1, num_layers=2
+    #                 )
     optimizer.to(device=device)
     optimizer = torch.compile(optimizer)
-    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)
+    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)# mlp = 0.001  transformer = 0.01
     epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
     config = RasterConfig()
     trainer = Trainer(optimizer, optimizer_opt, None, config,opacity_reg=cmd_args.opacity_reg, scale_reg=cmd_args.scale_reg)
@@ -316,7 +319,7 @@ def main():
         # print(gaussians_batch.shape)
         for  epoch_size in epochs:
             metrics = {}
-            step_size = log_lerp(min(iteration / 10000., 1.0), 0.1, 1.0)
+            step_size = log_lerp(min(iteration / 100000., 1.0), 0.1, 1.0)
             gaussians_batch, train_metrics = trainer.train_epoch(gaussians_batch, step_size, epoch_size)
             iteration += epoch_size
             image = trainer.render(gaussians_batch)
