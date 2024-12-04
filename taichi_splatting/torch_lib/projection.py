@@ -15,7 +15,13 @@ def radii_from_cov(uv_cov:torch.Tensor):
   max_eig_sq = (x + z + torch.sqrt(d * d + 4.0 * y * y)) / 2.0
   return torch.sqrt(max_eig_sq)
 
+def det2(cov: torch.Tensor) -> torch.Tensor:
+  return cov[..., 0, 0] * cov[..., 1, 1] - cov[..., 0, 1] * cov[..., 1, 0]
 
+def blur_covariance(cov: torch.Tensor, blur_cov: float) -> Tuple[torch.Tensor, torch.Tensor]:
+  blurred_cov = cov + torch.eye(2, device=cov.device, dtype=cov.dtype) * blur_cov
+  compensation = det2(cov) / det2(blurred_cov)
+  return blurred_cov, compensation.unsqueeze(-1)
 
 def eig(cov: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
   """ Compute the eigenvalues and eigenvectors of a 2x2 covariance matrix
@@ -169,11 +175,11 @@ def apply(position, log_scaling, rotation, alpha_logit,
 
   cov_in_camera = covariance_in_camera(T_camera_world, F.normalize(rotation, dim=-1), log_scaling.exp())
   cov = project_perspective_gaussian(J, cov_in_camera)
-  cov += torch.eye(2, device=cov.device, dtype=cov.dtype) * blur_cov
-  
+  cov, compensation = blur_covariance(cov, blur_cov)
+
   sigma, v1, v2 = eig(cov)
-  alpha = alpha_logit.sigmoid()
-  scale = sigma * torch.sqrt(torch.log(alpha_threshold / alpha))
+  alpha = alpha_logit.sigmoid() * compensation
+  scale = sigma * torch.sqrt(torch.log(alpha / alpha_threshold))
   lower, upper = ellipse_bounds(mean, v1 * scale[:, 0:1], v2 * scale[:, 1:2])
 
     

@@ -50,14 +50,11 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
       mean, z, cov = lib.project_gaussian(
         T_camera_world[idx], projection[idx], image_size,
         position[idx], ti.math.normalize(rotation[idx]), ti.exp(log_scale[idx]), clamp_margin=clamp_margin)
-
-      if ti.static(blur_cov > 0):
-        cov += lib.vec3([blur_cov, 0, blur_cov])
-        
-
+      cov, compensation = lib.blur_covariance(cov, blur_cov)
+      
       sigma, v1, v2 = lib.eig(cov)
 
-      alpha = lib.sigmoid(alpha_logit[idx][0])
+      alpha = lib.sigmoid(alpha_logit[idx][0]) * compensation
       gaussian_scale = ti.sqrt(ti.log(alpha / alpha_threshold))
 
       sx, sy = sigma * gaussian_scale
@@ -104,9 +101,8 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
         T_camera_world[idx], projection[idx], image_size,
         position[idx], ti.math.normalize(rotation[idx]), ti.exp(log_scale[idx]), clamp_margin)
       
-      if ti.static(blur_cov > 0):
-        cov += lib.vec3([blur_cov, 0, blur_cov])
-
+      cov, compensation = lib.blur_covariance(cov, blur_cov)
+      alpha = lib.sigmoid(alpha_logit[idx][0]) * compensation
       sigma, v1, _ = lib.eig(cov)
 
       depth[i] = z
@@ -114,7 +110,7 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
           mean=mean,
           axis = v1,
           sigma = sigma,
-          alpha=lib.sigmoid(alpha_logit[idx][0]),
+          alpha=alpha,
       )
 
 
