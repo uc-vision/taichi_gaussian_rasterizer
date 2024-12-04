@@ -100,21 +100,26 @@ class GaussianMixer(nn.Module):
       features=features, 
       image_size=(w, h), 
       config=raster_config)
-    return raster.image
+    return raster.image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> 1, n_render, H, W
 
+  def sample_gaussians(self, image:torch.Tensor, positions:torch.Tensor):
+    h, w = image.shape[-2:]
+    # normalize positions to be in the range [w, h] -> [-1, 1] for F.grid_sample
+    positions = ((positions / positions.new_tensor([w, h])) * 2.0 - 1.0).view(1, 1, -1, 2)
+    return F.grid_sample(image, positions, align_corners=False)
+  
 
 
   def forward(self, x: torch.Tensor, gaussians: Gaussians2D, image_size: Tuple[int, int], raster_config: RasterConfig) -> torch.Tensor:
     feature = self.init_mlp(x)      # B,inputs -> B, n_base
     x = self.down_project(feature)  # B, n_base -> B, n_render
 
-    image = self.render(x.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> H, W, n_render
-    x = image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> B, n_render, H, W
-    x = self.unet(x)   # B, n_render, H, W -> B, n_render, H, W
+    image = self.render(x.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> 1, n_render, H, W
+    image = self.unet(image)   # B, n_render, H, W -> B, n_render, H, W
 
     # sample at gaussian centres from the unet output
-    x = F.grid_sample(x, gaussians.position.view(1, 1, gaussians.batch_size[0], 2), align_corners=False) # B, n_render, H, W -> B, n_render, 1, 1
-    x = x.view(gaussians.batch_size[0], -1) # B, n_render, 1, 1 -> B, n_render
+    samples = self.sample_gaussians(image, gaussians.position) # B, n_render, 1, 1
+    x = samples.view(gaussians.batch_size[0], -1) # B, n_render, 1, 1 -> B, n_render
 
     x = self.up_project(x)              # B, n_render -> B, n_base
 
@@ -131,12 +136,12 @@ if __name__ == '__main__':
 
   device = torch.device('cuda', 0)
 
-  unet = UNet2D(f=16).to(device)
-  print(unet)
+  # unet = UNet2D(f=16).to(device)
+  # print(unet)
 
-  x = torch.randn(1, 16, 32, 32).to(device)
-  y = unet(x)
-  print(y.shape)
+  # x = torch.randn(1, 16, 32, 32).to(device)
+  # y = unet(x)
+  # print(y.shape)
 
 
   n_inputs = 10
