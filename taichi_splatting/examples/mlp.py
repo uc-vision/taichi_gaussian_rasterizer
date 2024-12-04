@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 
 from taichi_splatting.misc.renderer2d import point_covariance
-
 from .renderer2d import Gaussians2D
 
 def kl_divergence(means1:torch.Tensor, means2:torch.Tensor, cov1:torch.Tensor, cov2:torch.Tensor) -> torch.Tensor:
@@ -33,19 +32,6 @@ def kl_divergence(means1:torch.Tensor, means2:torch.Tensor, cov1:torch.Tensor, c
   return 0.5 * (trace_term + quad_term - 2 + torch.logdet(cov2) - torch.logdet(cov1))
   
 
-
-class InputResidual(nn.Module):
-  def __init__(self, *layers):
-    super().__init__()
-    self.layers = nn.ModuleList(layers)
-
-  def forward(self, inputs):
-    x = self.layers[0](inputs)
-    
-    for layer in self.layers[1:]:
-      x = layer(torch.cat([x, inputs], dim=1))
-    return x
-
 def linear(in_features, out_features,  init_std=None):
   m = nn.Linear(in_features, out_features, bias=True)
 
@@ -55,22 +41,20 @@ def linear(in_features, out_features,  init_std=None):
   m.bias.data.zero_()
   return m
 
-class Residual(nn.Module):
-  def __init__(self, *layers):
-    super().__init__()
-    self.layers = nn.ModuleList(layers)
-
-  def forward(self, x):
-    for layer in self.layers:
-      x = x + layer(x)
-    return x
-
 
 def layer(in_features, out_features, activation=nn.Identity, norm=nn.Identity, **kwargs):
   return nn.Sequential(linear(in_features, out_features, **kwargs), 
-                       activation(),
                        norm(out_features),
+                       activation(),
                        )
+
+
+def mlp_body(inputs, hidden_channels: List[int], activation=nn.ReLU, norm=nn.Identity):
+  return nn.Sequential(
+    layer(inputs, hidden_channels[0], activation),
+    *[layer(hidden_channels[i], hidden_channels[i+1], activation, norm)  
+      for i in range(len(hidden_channels) - 1)]
+  )   
 
 
 def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, norm=nn.Identity, 
@@ -81,8 +65,6 @@ def mlp(inputs, outputs, hidden_channels: List[int], activation=nn.ReLU, norm=nn
                        init_std=output_scale)
   
   return nn.Sequential(
-    layer(inputs, hidden_channels[0], activation),
-    *[layer(hidden_channels[i], hidden_channels[i+1], activation, norm)  
-      for i in range(len(hidden_channels) - 1)],
-    output_layer,
+    mlp_body(inputs, hidden_channels, activation, norm),
+    output_layer
   )   

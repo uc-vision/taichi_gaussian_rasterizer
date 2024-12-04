@@ -99,6 +99,8 @@ def flatten_tensorclass(t):
 def mean_dicts(dicts:List[Dict[str, float]]):
   return {k: sum(d[k] for d in dicts) / len(dicts) for k in dicts[0].keys()}
 
+
+
 class Trainer:
   def __init__(self, 
                optimizer_mlp:torch.nn.Module, 
@@ -267,7 +269,6 @@ def main():
 
   optimizer = torch.compile(optimizer)
   optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)
-
 
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255 
