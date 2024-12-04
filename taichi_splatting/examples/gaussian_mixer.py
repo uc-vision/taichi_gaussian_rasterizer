@@ -115,6 +115,8 @@ class GaussianMixer(nn.Module):
     x = x.view(gaussians.batch_size[0], -1) # B, n_render, 1, 1 -> B, n_render
 
     x = self.up_project(x)              # B, n_render -> B, n_base
+
+    # shortcut from output of init_mlp
     x = self.final_mlp(x + feature)     # B, n_base -> B, outputs
     return x
 
