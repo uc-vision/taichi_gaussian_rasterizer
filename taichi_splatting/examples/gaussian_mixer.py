@@ -86,7 +86,7 @@ class GaussianMixer(nn.Module):
     self.unet = UNet2D(f=n_render, activation=nn.ReLU)
 
     self.final_mlp = mlp(n_base, outputs=outputs, hidden_channels=[n_base] * 2, 
-                         activation=nn.ReLU, norm=nn.LayerNorm)
+                         activation=nn.ReLU, norm=nn.LayerNorm, output_scale=1e-12)
 
 
   def render(self, features:torch.Tensor, gaussians:Gaussians2D, image_size: Tuple[int, int], raster_config: RasterConfig = RasterConfig()):
@@ -103,23 +103,19 @@ class GaussianMixer(nn.Module):
 
 
   def forward(self, x: torch.Tensor, gaussians: Gaussians2D, image_size: Tuple[int, int], raster_config: RasterConfig) -> torch.Tensor:
-    x = self.init_mlp(x)      # B,inputs -> B, n_base
-    x = self.down_project(x)  # B, n_base -> B, n_render
+    feature = self.init_mlp(x)      # B,inputs -> B, n_base
+    x = self.down_project(feature)  # B, n_base -> B, n_render
 
     image = self.render(x, gaussians, image_size, raster_config).image # B, n_render -> H, W, n_render
-    print(image.shape)
-
     x = image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> B, n_render, H, W
-
-    print(x.shape)
     x = self.unet(x)   # B, n_render, H, W -> B, n_render, H, W
 
     # sample at gaussian centres from the unet output
     x = F.grid_sample(x, gaussians.position.view(1, 1, gaussians.batch_size[0], 2), align_corners=False) # B, n_render, H, W -> B, n_render, 1, 1
     x = x.view(gaussians.batch_size[0], -1) # B, n_render, 1, 1 -> B, n_render
 
-    x = self.up_project(x)        # B, n_render -> B, n_base
-    x = self.final_mlp(x)     # B, n_base -> B, outputs
+    x = self.up_project(x)              # B, n_render -> B, n_base
+    x = self.final_mlp(x + feature)     # B, n_base -> B, outputs
     return x
 
 
@@ -136,7 +132,9 @@ if __name__ == '__main__':
   y = unet(x)
   print(y.shape)
 
-  mixer = GaussianMixer(inputs=10, outputs=10, n_render=16, n_base=64).to(device)
+
+  n_inputs = 10
+  mixer = GaussianMixer(inputs=n_inputs, outputs=n_inputs, n_render=16, n_base=64).to(device)
 
   image_size = (320, 240)
   gaussians = random_2d_gaussians(10000, image_size, alpha_range=(0.5, 1.0), scale_factor=1.0).to(device) 
