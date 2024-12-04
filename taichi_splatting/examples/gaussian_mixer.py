@@ -4,6 +4,7 @@ from typing import Callable, List, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tqdm
 
 from taichi_splatting.data_types import RasterConfig
 from taichi_splatting.misc.renderer2d import project_gaussians2d
@@ -89,6 +90,7 @@ class GaussianMixer(nn.Module):
                          activation=nn.ReLU, norm=nn.LayerNorm, output_scale=1e-12)
 
 
+  @torch.compiler.disable
   def render(self, features:torch.Tensor, gaussians:Gaussians2D, image_size: Tuple[int, int], raster_config: RasterConfig = RasterConfig()):
     h, w = image_size
     
@@ -98,7 +100,7 @@ class GaussianMixer(nn.Module):
       features=features, 
       image_size=(w, h), 
       config=raster_config)
-    return raster
+    return raster.image
 
 
 
@@ -106,7 +108,7 @@ class GaussianMixer(nn.Module):
     feature = self.init_mlp(x)      # B,inputs -> B, n_base
     x = self.down_project(feature)  # B, n_base -> B, n_render
 
-    image = self.render(x, gaussians, image_size, raster_config).image # B, n_render -> H, W, n_render
+    image = self.render(x.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> H, W, n_render
     x = image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> B, n_render, H, W
     x = self.unet(x)   # B, n_render, H, W -> B, n_render, H, W
 
@@ -122,6 +124,8 @@ class GaussianMixer(nn.Module):
 
 
 if __name__ == '__main__':
+
+  torch.set_float32_matmul_precision('high')
   TaichiQueue.init(arch=ti.cuda, log_level=ti.INFO,  
           debug=False, device_memory_GB=0.1)
 
@@ -136,11 +140,22 @@ if __name__ == '__main__':
 
 
   n_inputs = 10
-  mixer = GaussianMixer(inputs=n_inputs, outputs=n_inputs, n_render=16, n_base=64).to(device)
+  mixer = GaussianMixer(inputs=n_inputs, outputs=n_inputs, n_render=16, n_base=128).to(device)
+  # mixer = torch.compile(mixer, options={"max_autotune": True})
+  mixer = torch.compile(mixer)
 
   image_size = (320, 240)
-  gaussians = random_2d_gaussians(10000, image_size, alpha_range=(0.5, 1.0), scale_factor=1.0).to(device) 
+  gaussians = random_2d_gaussians(100000, image_size, alpha_range=(0.5, 1.0), scale_factor=1.0).to(device) 
+
+  # config = RasterConfig(pixel_stride=(1, 1), tile_size=8) # can handle 64 dimension rendering
+  config = RasterConfig()
 
   x = torch.randn(gaussians.batch_size[0], 10).to(device)
-  y = mixer(x, gaussians, image_size, RasterConfig())
-  print(y.shape)
+  with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+    y = mixer(x, gaussians, image_size, config)
+    y.sum().backward()  
+
+    for _ in tqdm.tqdm(range(1000)):
+      y = mixer(x, gaussians, image_size, config)
+      y.sum().backward()
+        
