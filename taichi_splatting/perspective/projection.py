@@ -53,6 +53,7 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
 
       if ti.static(blur_cov > 0):
         cov += lib.vec3([blur_cov, 0, blur_cov])
+        
 
       sigma, v1, v2 = lib.eig(cov)
 

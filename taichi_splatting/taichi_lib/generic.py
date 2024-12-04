@@ -229,6 +229,17 @@ def make_library(dtype=ti.f32):
       return ti.sqrt(vec2(lambda1, lambda2)), v1, v2
 
 
+  @ti.func
+  def det3(cov:vec3):
+    return cov.x * cov.z - cov.y * cov.y
+
+  @ti.func
+  def blur_covariance(cov:vec3, blur_cov:dtype):
+
+    blurred_cov = cov + vec3([blur_cov, 0, blur_cov])
+    compensation = det3(cov) / det3(blurred_cov)
+    
+    return blurred_cov, compensation 
 
   @ti.func
   def ellipse_bounds(uv, v1, v2):
