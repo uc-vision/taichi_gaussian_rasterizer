@@ -102,11 +102,17 @@ class GaussianMixer(nn.Module):
       config=raster_config)
     return raster.image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> 1, n_render, H, W
 
-  def sample_gaussians(self, image:torch.Tensor, positions:torch.Tensor):
+  def sample_gaussians(self, image:torch.Tensor,  # 1, n_render, H, W
+                       positions:torch.Tensor,    # B, 2
+                       ) -> torch.Tensor:         # B, n_render
     h, w = image.shape[-2:]
+    B = positions.shape[0]
+
     # normalize positions to be in the range [w, h] -> [-1, 1] for F.grid_sample
-    positions = ((positions / positions.new_tensor([w, h])) * 2.0 - 1.0).view(1, 1, -1, 2)
-    return F.grid_sample(image, positions, align_corners=False)
+    positions = ((positions / positions.new_tensor([w, h])) * 2.0 - 1.0).view(1, 1, B, 2)
+    samples = F.grid_sample(image, positions, align_corners=False) # B, n_render, 1, 1
+
+    return samples.view(B, -1) # B, n_render, 1, 1 -> B, n_render
   
 
 
@@ -118,9 +124,7 @@ class GaussianMixer(nn.Module):
     image = self.unet(image)   # B, n_render, H, W -> B, n_render, H, W
 
     # sample at gaussian centres from the unet output
-    samples = self.sample_gaussians(image, gaussians.position) # B, n_render, 1, 1
-    x = samples.view(gaussians.batch_size[0], -1) # B, n_render, 1, 1 -> B, n_render
-
+    x = self.sample_gaussians(image, gaussians.position) 
     x = self.up_project(x)              # B, n_render -> B, n_base
 
     # shortcut from output of init_mlp
