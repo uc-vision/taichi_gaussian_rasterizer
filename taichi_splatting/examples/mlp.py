@@ -3,11 +3,11 @@ import torch
 import torch.nn as nn
 
 from taichi_splatting.misc.renderer2d import point_covariance
-import torch
-import torch.nn as nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
 from typing import List
 from .renderer2d import Gaussians2D
+
+import torch.nn.functional as F
 
 def kl_divergence(means1:torch.Tensor, means2:torch.Tensor, cov1:torch.Tensor, cov2:torch.Tensor) -> torch.Tensor:
   """Compute KL divergence between two 2D Gaussian distributions.
@@ -215,3 +215,101 @@ class TransformerMLP(nn.Module):
       return output
 
 
+class AttentionGate(nn.Module):
+    def __init__(self, in_channels, gate_channels, inter_channels):
+        super(AttentionGate, self).__init__()
+        self.theta_x = nn.Conv2d(in_channels, inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi_g = nn.Conv2d(gate_channels, inter_channels, kernel_size=1, stride=1, padding=0)
+        self.psi = nn.Conv2d(inter_channels, 1, kernel_size=1, stride=1, padding=0)
+        self.sigmoid = nn.Sigmoid()
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x, g):
+        # Apply transformations
+        theta_x = self.theta_x(x)
+        phi_g = self.phi_g(g)
+        add_xg = self.relu(theta_x + phi_g)
+        psi = self.sigmoid(self.psi(add_xg))
+        # Upsample psi to match the spatial dimensions of x
+        psi = F.interpolate(psi, size=x.shape[2:], mode="bilinear", align_corners=True)
+        # Apply attention to x
+        return x * psi
+
+class UNet4(nn.Module):
+    def __init__(self, dropout_rate=0.5, l2_lambda=0.01):
+        super(UNet4, self).__init__()
+        
+        # Regularizer (L2 is typically handled by the optimizer in PyTorch)
+        self.dropout_rate = dropout_rate
+
+        # Contracting Path
+        self.enc1 = self.conv_block(1, 64, dropout_rate)
+        self.enc2 = self.conv_block(64, 128, dropout_rate)
+        self.enc3 = self.conv_block(128, 256, dropout_rate)
+        self.bottleneck = self.conv_block(256, 512, dropout_rate)
+
+        # Expanding Path
+        self.upconv3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
+        self.attention3 = AttentionGate(256, 256, inter_channels=128)
+        self.dec3 = self.conv_block(512, 256, dropout_rate)
+
+        self.upconv2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.attention2 = AttentionGate(128, 128, inter_channels=64)
+        self.dec2 = self.conv_block(256, 128, dropout_rate)
+
+        self.upconv1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.attention1 = AttentionGate(64, 64, inter_channels=32)
+        self.dec1 = self.conv_block(128, 64, dropout_rate)
+
+        # Output Layer
+        self.output_layer = nn.Conv2d(64, 1, kernel_size=1)
+
+    def conv_block(self, in_channels, out_channels, dropout_rate):
+        """
+        Creates a convolutional block with Conv2D -> BatchNorm -> ReLU -> Dropout.
+        """
+        return nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(dropout_rate)
+        )
+
+    def forward(self, x):
+        # Contracting Path
+        x1 = self.enc1(x)
+        p1 = F.max_pool2d(x1, kernel_size=2)
+
+        x2 = self.enc2(p1)
+        p2 = F.max_pool2d(x2, kernel_size=2)
+
+        x3 = self.enc3(p2)
+        p3 = F.max_pool2d(x3, kernel_size=2)
+
+        # Bottleneck
+        x4 = self.bottleneck(p3)
+
+        # Expanding Path
+        up3 = self.upconv3(x4)
+        print(x3.shape)
+        print(up3.shape)
+        att3 = self.attention3(x3, up3)
+        concat3 = torch.cat([up3, att3], dim=1)
+        x5 = self.dec3(concat3)
+
+        up2 = self.upconv2(x5)
+        print(x5.shape)
+        print(up2.shape)
+        att2 = self.attention2(x2, up2)
+        concat2 = torch.cat([up2, att2], dim=1)
+        x6 = self.dec2(concat2)
+
+        up1 = self.upconv1(x6)
+        att1 = self.attention1(x1, up1)
+        concat1 = torch.cat([up1, att1], dim=1)
+        x7 = self.dec1(concat1)
+
+        # Output Layer
+        output = self.output_layer(x7)
+
+        return output

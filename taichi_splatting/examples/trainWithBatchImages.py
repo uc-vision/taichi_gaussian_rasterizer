@@ -13,7 +13,7 @@ import taichi as ti
 import torch
 from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
-from taichi_splatting.examples.mlp import mlp,TransformerMLP
+from taichi_splatting.examples.mlp import mlp,TransformerMLP,UNet4
 from taichi_splatting.misc.renderer2d import project_gaussians2d
 
 from taichi_splatting.rasterizer.function import rasterize
@@ -221,7 +221,9 @@ class Trainer:
             # print(f"inputs:{inputs.shape}")
             
             with torch.enable_grad():
-                step = self.optimizer_mlp(inputs)
+                print(inputs.shape)
+                inputs = inputs.unsqueeze(0)
+                step = self.optimizer_mlp(inputs.view(20, 1, 5000, 11))
                 finite_mask = torch.isfinite(step)
                 step = torch.where(finite_mask, step, torch.zeros_like(step))
                 step = split_tensorclass(gaussians_batch, step)
@@ -293,16 +295,17 @@ def main():
     
 
     # Create the MLP
-    optimizer = mlp(inputs=channels, outputs=channels,
-                    hidden_channels=[128, 256, 512,1024,128],
-                    activation=nn.ReLU,
-                    norm=partial(nn.LayerNorm, elementwise_affine=False),
-                    output_scale=1e-12
-                    )
+    # optimizer = mlp(inputs=channels, outputs=channels,
+    #                 hidden_channels=[128, 256, 512,1024,128],
+    #                 activation=nn.ReLU,
+    #                 norm=partial(nn.LayerNorm, elementwise_affine=False),
+    #                 output_scale=1e-12
+    #                 )
     # optimizer = TransformerMLP(input_dim=channels, output_dim=channels,
     #                 hidden_channels=[128],
     #                 num_heads=1, num_layers=2
     #                 )
+    optimizer = UNet4()
     optimizer.to(device=device)
     optimizer = torch.compile(optimizer)
     optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)# mlp = 0.001  transformer = 0.01
