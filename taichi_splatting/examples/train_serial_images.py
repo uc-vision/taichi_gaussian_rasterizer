@@ -36,7 +36,7 @@ from taichi_splatting.misc.renderer2d import project_gaussians2d
 from fit_image_gaussians import parse_args, partial, log_lerp, psnr, display_image, flatten_tensorclass, split_tensorclass, mean_dicts, lerp
 from gaussian_mixer import GaussianMixer
 from taichi_splatting.rasterizer.function import rasterize
-
+from fused_ssim import fused_ssim
 from taichi_splatting.taichi_queue import TaichiQueue
 from taichi_splatting.tests.random_data import random_2d_gaussians
 
@@ -88,7 +88,9 @@ class Trainer:
 
             # l1 = torch.nn.functional.l1_loss(raster.image, self.ref_image)
             l1 = torch.nn.functional.mse_loss(raster.image, self.ref_image)
-
+            # print(raster.image.shape)
+            # print(self.ref_image.shape)
+            # l1= fused_ssim(raster.image.unsqueeze(0), self.ref_image.unsqueeze(0),train=True)
             loss = l1 + opacity_reg + scale_reg + depth_reg
             loss.backward()
 
