@@ -213,6 +213,7 @@ def main():
 
   pbar = tqdm(total=cmd_args.iters)
   iteration = 0
+  
   for  epoch_size in epochs:
 
     metrics = {}
