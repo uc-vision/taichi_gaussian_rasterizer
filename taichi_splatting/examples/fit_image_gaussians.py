@@ -180,7 +180,7 @@ class Trainer:
         step = split_tensorclass(gaussians, step)
     raster = self.render(gaussians-step)
     psnr_value = psnr(self.ref_image, raster.image).item()
-    # print(f"Test PSNR: {psnr_value:.4f}")
+    print(f"Test PSNR: {psnr_value:.4f}")
     return raster.image
         
   # def test(self, gaussians,step_size=0.01,epoch_size=100):
@@ -264,11 +264,11 @@ def main():
               )
   optimizer.to(device=device)
 
-  # print(optimizer)
+  print(optimizer)
 
 
   optimizer = torch.compile(optimizer)
-  optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)
+  optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)
 
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255 

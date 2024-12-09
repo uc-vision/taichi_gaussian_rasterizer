@@ -136,11 +136,14 @@ class Trainer:
       grad = self.get_gradients(gaussians)
       check_finite(grad, "grad")
       self.mlp_opt.zero_grad()
-
+      
       inputs = flatten_tensorclass(grad)
+      # input1 = flatten_tensorclass(gaussians)
+      # inputs = torch.cat((inputs,input1),dim=-1)
+
 
       with torch.enable_grad():
-        step = self.optimizer_mlp(inputs,gaussians,self.ref_image.shape[:2],self.config,)# h ,w channel
+        step = self.optimizer_mlp(inputs,gaussians,self.ref_image.shape[:2],self.config,self.ref_image)# h ,w channel
         step = split_tensorclass(gaussians, step)
 
         metrics.append(self.render_step(gaussians - step))
@@ -215,7 +218,7 @@ def main():
     metrics = {}
 
     # Set warmup schedule for first iterations - log interpolate 
-    step_size = log_lerp(min(iteration / 100., 1.0), 0.1, 1.0)
+    step_size = log_lerp(min(iteration / 400., 1.0), 0.1, 1.0)
     
     gaussians, train_metrics = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
 

@@ -33,7 +33,7 @@ class UNet2D(nn.Module):
         )
 
     self.down_layers = nn.ModuleList([
-        make_down_layer(i) for i in range(4)
+        make_down_layer(i) for i in range(6)
     ])
 
     # Up path: 16f -> 8f -> 4f -> 2f -> f
@@ -47,7 +47,7 @@ class UNet2D(nn.Module):
         )
 
     self.up_layers = nn.ModuleList(reversed([
-        make_up_layer(i) for i in range(4)
+        make_up_layer(i) for i in range(6)
     ]))
 
     self.final_layer = nn.Sequential(
@@ -83,8 +83,8 @@ class GaussianMixer(nn.Module):
     
     self.down_project = nn.Linear(n_base, n_render)
     
-    self.up_project = nn.Linear(n_render, n_base)
-    self.unet = UNet2D(f=n_render, activation=nn.ReLU)
+    self.up_project = nn.Linear(n_render+3, n_base)
+    self.unet = UNet2D(f=n_render+3, activation=nn.ReLU)
 
     self.final_mlp = mlp(n_base, outputs=outputs, hidden_channels=[n_base] * 2, 
                          activation=nn.ReLU, norm=nn.LayerNorm, output_scale=1e-12)
@@ -116,19 +116,27 @@ class GaussianMixer(nn.Module):
   
 
 
-  def forward(self, x: torch.Tensor, gaussians: Gaussians2D, image_size: Tuple[int, int], raster_config: RasterConfig) -> torch.Tensor:
+  def forward(self, x: torch.Tensor, gaussians: Gaussians2D, image_size: Tuple[int, int], raster_config: RasterConfig,ref_image:torch.Tensor) -> torch.Tensor:
+    
+    
     feature = self.init_mlp(x)      # B,inputs -> B, n_base
     x = self.down_project(feature)  # B, n_base -> B, n_render
 
     image = self.render(x.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> 1, n_render, H, W
-    image = self.unet(image)   # B, n_render, H, W -> B, n_render, H, W
+    precon_image = ref_image.unsqueeze(0).permute(0,3,1,2)
+    con_image = torch.cat((image,precon_image),dim=1)
+    
 
+    
+    image = self.unet(con_image)   # B, n_render, H, W -> B, n_render, H, W
+    
     # sample at gaussian centres from the unet output
     x = self.sample_positions(image, gaussians.position) 
     x = self.up_project(x)              # B, n_render -> B, n_base
 
     # shortcut from output of init_mlp
-    x = self.final_mlp(x + feature)     # B, n_base -> B, outputs
+    x = self.final_mlp(x + feature) 
+    # print(x.shape)    # B, n_base -> B, outputs
     return x
 
 
@@ -149,7 +157,7 @@ if __name__ == '__main__':
 
 
   n_inputs = 10
-  mixer = GaussianMixer(inputs=n_inputs, outputs=n_inputs, n_render=16, n_base=128).to(device)
+  mixer = GaussianMixer(inputs=n_inputs, outputs=n_inputs, n_render=13, n_base=128).to(device)
   # mixer = torch.compile(mixer, options={"max_autotune": True})
   mixer = torch.compile(mixer)
 
