@@ -117,14 +117,6 @@ def backward_kernel(config: RasterConfig,
       last_point_thread = last_point_pixel.max()
       w_i = thread_features(0.0)
 
-      #  T_i = \prod_{j=1}^{i-1} (1 - a_j) \\
-      #  \frac{dC}{da_i} = c_i T(i) - \frac{1}{1 - a_i} \\
-      #  \sum_{j=i+1}^{n} c_j a_j T(j) \\
-      #  \text{let } w_i = \sum_{j=i+1}^{n} c_j a_j T(j) \\
-      #  w_n = 0 \\
-      #  w_{i-1} = w_i + c_i a_i T(i) \\
-      #  \frac{dC}{da_i} = c_i T(i) - \frac{1}{1 - a_i} w_i \\
-
       # fine tune the end offset to the actual number of points renderered
       end_offset = block_reduce_i32(last_point_thread, ti.max, ti.atomic_max, 0)
 
@@ -213,7 +205,8 @@ def backward_kernel(config: RasterConfig,
                 gaussian_point_heuristics += vec2(
                   # (feature_diff**2).sum() * weight, # pruning cost heuristic
                   # (dp_dmean.norm() * feature_diff.norm() * weight),
-                  dp_dmean.norm(2) * weight,
+                  
+                  ti.math.length(dp_dmean) * weight,
                   ti.abs(pos_grad).sum() # point split heuristic 
                 )
 

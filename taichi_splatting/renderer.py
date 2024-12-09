@@ -103,6 +103,13 @@ class Rendering:
     return self.points_in_view[self.visible_mask]
   
   @cached_property
+  def max_visibility(self) -> torch.Tensor:
+    """ Max visibility possible for a point (assuming no occlusion) 
+    integral of gaussian_alpha * alpha
+    """
+    return self.point_opacity * (2 * torch.pi) * self.point_scale.prod(dim=1)
+
+  @cached_property
   def visible(self) -> Tuple[torch.Tensor, torch.Tensor]:
     """ Visible points and their features """
     return self.visible_indices, self.point_visibility

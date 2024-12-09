@@ -46,7 +46,7 @@ def parse_args():
 
   parser.add_argument('--prune_rate', type=float, default=0.04, help='Rate of pruning proportional to number of points')
   parser.add_argument('--opacity_reg', type=float, default=0.0001)
-  parser.add_argument('--scale_reg', type=float, default=10.0)
+  parser.add_argument('--scale_reg', type=float, default=40.0)
 
   parser.add_argument('--threaded', action='store_true', help='Use taichi dedicated thread')
 
@@ -209,7 +209,7 @@ def split_prune(params:ParameterClass, t, target, prune_rate, point_heuristics):
   splits = uniform_split_gaussians2d(Gaussians2D.from_tensordict(to_split.tensors), random_axis=True)
   optim_state = to_split.tensor_state.new_zeros(to_split.batch_size[0], 2)
 
-  # optim_state['position']['running_vis'][:] = to_split.tensor_state['position']['running_vis'].unsqueeze(1) * 0.5
+  optim_state['position']['running_vis'][:] = to_split.tensor_state['position']['running_vis'].unsqueeze(1) * 0.5
 
   params = params[~(split_mask | prune_mask)]
   params = params.append_tensors(splits.to_tensordict(), optim_state.reshape(splits.batch_size))
@@ -267,7 +267,7 @@ def main():
   #       parameter_groups, optimizer=SparseAdam, betas=(0.9, 0.95), eps=1e-16, bias_correction=True)
 
   params = ParameterClass(gaussians.to_tensordict(), 
-        parameter_groups, optimizer=VisibilityAwareLaProp, vis_beta=0.9, betas=(0.9, 0.9), eps=1e-16, bias_correction=False)
+        parameter_groups, optimizer=VisibilityAwareLaProp, vis_beta=0.8, betas=(0.9, 0.9), eps=1e-16, bias_correction=False)
   
   keys = set(params.keys())
   trainable = set(params.optimized_keys())

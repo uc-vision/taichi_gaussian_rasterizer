@@ -111,7 +111,7 @@ def repeat_sample_gaussians(samples: torch.Tensor, points: Gaussians2D, n:int=2)
 def uniform_split_gaussians2d(points: Gaussians2D, n:int=2, scaling:Optional[float]=None,  depth_noise:float=1e-2, sep:float=0.7, random_axis:bool=False, eps:float=1e-6) -> Gaussians2D:
 
   if random_axis:
-    axis_probs = F.normalize(points.scaling + eps, p=1, dim=1)
+    axis_probs = F.normalize(points.scaling.pow(2) + eps, p=1, dim=1)
 
     # Randomly choose axis proportional to the scaling
     axis = torch.multinomial(axis_probs, num_samples=1).squeeze(1)
