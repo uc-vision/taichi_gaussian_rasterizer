@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from taichi_splatting.misc.renderer2d import point_covariance
-from .renderer2d import Gaussians2D
+from renderer2d import Gaussians2D
 
 def kl_divergence(means1:torch.Tensor, means2:torch.Tensor, cov1:torch.Tensor, cov2:torch.Tensor) -> torch.Tensor:
   """Compute KL divergence between two 2D Gaussian distributions.

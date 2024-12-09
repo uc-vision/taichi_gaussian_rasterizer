@@ -10,8 +10,8 @@ from taichi_splatting.data_types import RasterConfig
 from taichi_splatting.misc.renderer2d import project_gaussians2d
 from taichi_splatting.taichi_queue import TaichiQueue
 from taichi_splatting.tests.random_data import random_2d_gaussians
-from .renderer2d import Gaussians2D
-from .mlp import mlp, mlp_body
+from renderer2d import Gaussians2D
+from mlp import mlp, mlp_body
 from taichi_splatting.rasterizer.function import rasterize
 
 def group_norm(num_channels:int):

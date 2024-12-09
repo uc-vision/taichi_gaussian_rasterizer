@@ -1,3 +1,25 @@
+# for epoch in tqdm.tqdm(range(epochs)):
+#       with torch.enable_grad():
+      
+#         optimizer_opt.zero_grad()
+        
+#         y = mixer(x, gaussians, image_size, config)
+#         c = x-y
+
+#         rendered_image = mixer.render(c, gaussians, image_size).squeeze(0)
+        
+#         loss = criterion(rendered_image.permute(1,2, 0), ref_image)
+        
+        
+#         loss.backward()
+#         if epoch % 10 == 0:  # Print every 10 epochs
+#           print(f"Epoch [{epoch}/{epochs}], Loss: {loss.item():.6f}")
+
+#       optimizer_opt.step()
+#       x = c.detach()
+#       # y.sum().backward()
+import os
+import matplotlib.pyplot as plt
 from functools import partial
 import math
 from typing import Dict, List
@@ -12,93 +34,16 @@ from tqdm import tqdm
 from taichi_splatting.data_types import Gaussians2D, RasterConfig
 from taichi_splatting.examples.mlp import mlp
 from taichi_splatting.misc.renderer2d import project_gaussians2d
-
+from fit_image_gaussians import parse_args,partial,log_lerp,psnr,display_image,flatten_tensorclass,split_tensorclass,mean_dicts,lerp
+from gaussian_mixer import GaussianMixer
 from taichi_splatting.rasterizer.function import rasterize
 
 from taichi_splatting.taichi_queue import TaichiQueue
 from taichi_splatting.tests.random_data import random_2d_gaussians
 
 from taichi_splatting.torch_lib.util import check_finite
-
-torch.set_float32_matmul_precision('high')
-
-def parse_args():
-  parser = argparse.ArgumentParser()
-  parser.add_argument('image_file', type=str)
-  parser.add_argument('--seed', type=int, default=0)
-
-  parser.add_argument('--n', type=int, default=20)
-  parser.add_argument('--iters', type=int, default=20)
-
-  parser.add_argument('--epoch', type=int, default=20, help='base epoch size (increases with t)')
-
-  parser.add_argument('--opacity_reg', type=float, default=0.0000)
-  parser.add_argument('--scale_reg', type=float, default=10.0)
-
-  parser.add_argument('--debug', action='store_true')
-  parser.add_argument('--show', action='store_true')
-
-  parser.add_argument('--profile', action='store_true')
-  
-  args = parser.parse_args()
-  return args
-
-
-
-def log_lerp(t, a, b):
-  return math.exp(math.log(b) * t + math.log(a) * (1 - t))
-
-def lerp(t, a, b):
-  return b * t + a * (1 - t)
-
-
-def display_image(name, image):
-    image = (image.clamp(0, 1) * 255).to(torch.uint8)
-    image = image.cpu().numpy()
-
-    cv2.imshow(name, image)
-    cv2.waitKey(1)
-    
-
-def psnr(a, b):
-  return 10 * torch.log10(1 / torch.nn.functional.mse_loss(a, b))  
-
-
-def cat_values(dicts, dim=1):
-  assert all(d.batch_size == dicts[0].batch_size for d in dicts)
-  
-  dicts = [d.to_tensordict() for d in dicts]
-  assert all(d.keys() == dicts[0].keys() for d in dicts)
-
-  keys, cls = dicts[0].keys(), type(dicts[0])
-  concatenated = {k: torch.cat([d[k] for d in dicts], dim=dim) for k in keys}
-  return cls.from_dict(concatenated, batch_size=dicts[0].batch_size)
-
-def element_sizes(t):
-  """ Get non batch sizes from a tensorclass"""
-  return {k:v.shape[1:] for k, v in t.items()}
-
-
-def split_tensorclass(t, flat_tensor:torch.Tensor):
-  sizes = element_sizes(t)
-  splits = [np.prod(s) for s in sizes.values()]
-
-  tensors = torch.split(flat_tensor, splits, dim=1)
-  
-  return t.__class__.from_dict(
-      {k: v.view(t.batch_size + s) 
-       for k, v, s in zip(sizes.keys(), tensors, sizes.values())},
-      batch_size=t.batch_size
-  )
-
-def flatten_tensorclass(t):
-  flat_tensor = torch.cat([v.view(v.shape[0], -1) for v in t.values()], dim=1)
-  return flat_tensor
-
-
-def mean_dicts(dicts:List[Dict[str, float]]):
-  return {k: sum(d[k] for d in dicts) / len(dicts) for k in dicts[0].keys()}
-
+import os
+import matplotlib.pyplot as plt
 
 
 class Trainer:
@@ -180,23 +125,9 @@ class Trainer:
         step = split_tensorclass(gaussians, step)
     raster = self.render(gaussians-step)
     psnr_value = psnr(self.ref_image, raster.image).item()
-    # print(f"Test PSNR: {psnr_value:.4f}")
+    print(f"Test PSNR: {psnr_value:.4f}")
     return raster.image
         
-  # def test(self, gaussians,step_size=0.01,epoch_size=100):
-  #   for i in range(epoch_size):
-  #     grad = self.get_gradients(gaussians)
-  #     check_finite(grad, "grad")
-  #     # self.mlp_opt.zero_grad()
-
-  #     inputs = flatten_tensorclass(gaussians)
-
-  #     with torch.enable_grad():
-  #       step = self.optimizer_mlp(inputs)
-  #       step = split_tensorclass(gaussians, step)
-  #     # self.mlp_opt.step()
-  #     gaussians = gaussians - step * step_size
-  #   return gaussians
 
   def train_epoch(self, gaussians, step_size=0.01, epoch_size=100):
     metrics = []
@@ -209,7 +140,7 @@ class Trainer:
       inputs = flatten_tensorclass(grad)
 
       with torch.enable_grad():
-        step = self.optimizer_mlp(inputs)
+        step = self.optimizer_mlp(inputs,gaussians,self.ref_image.shape[:2],self.config,)# h ,w channel
         step = split_tensorclass(gaussians, step)
 
         metrics.append(self.render_step(gaussians - step))
@@ -218,6 +149,10 @@ class Trainer:
       gaussians = gaussians - step * step_size 
 
     return gaussians, mean_dicts(metrics)
+
+
+
+
 
 
 
@@ -231,7 +166,7 @@ def main():
   torch.set_grad_enabled(False)
 
   
-  ref_image = cv2.imread(cmd_args.image_file)
+  ref_image = cv2.imread('/csse/users/pwl25/pear/images/DSC_1366_12kv2r16k_7.jpg')
   assert ref_image is not None, f'Could not read {cmd_args.image_file}'
 
   h, w = ref_image.shape[:2]
@@ -240,7 +175,7 @@ def main():
   TaichiQueue.init(arch=ti.cuda, log_level=ti.INFO,  
           debug=cmd_args.debug, device_memory_GB=0.1)
 
-  print(f'Image size: {w}x{h}')
+  # print(f'Image size: {w}x{h}')
 
   if cmd_args.show:
     cv2.namedWindow('rendered', cv2.WINDOW_NORMAL)
@@ -251,24 +186,18 @@ def main():
   torch.cuda.random.manual_seed(cmd_args.seed)
 
   gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=1.0).to(torch.device('cuda:0')) 
-  channels = sum([np.prod(v.shape[1:], dtype=int) for k, v in gaussians.items()])
+  n_inputs = sum([np.prod(v.shape[1:], dtype=int) for k, v in gaussians.items()])
 
 
   # Create the MLP
-  optimizer = mlp(inputs = channels, outputs=channels, 
-              hidden_channels=[128, 128, 128], 
-              activation=nn.ReLU,
-              norm=partial(nn.LayerNorm, elementwise_affine=False),
-              # output_activation=nn.Tanh,
-              output_scale=1e-12
-              )
+  optimizer = GaussianMixer(inputs=n_inputs, outputs=n_inputs, n_render=16, n_base=128).to(device)
   optimizer.to(device=device)
 
   # print(optimizer)
 
 
   optimizer = torch.compile(optimizer)
-  optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)
+  optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)
 
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255 
@@ -286,7 +215,7 @@ def main():
     metrics = {}
 
     # Set warmup schedule for first iterations - log interpolate 
-    step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
+    step_size = log_lerp(min(iteration / 100., 1.0), 0.1, 1.0)
     
     gaussians, train_metrics = trainer.train_epoch(gaussians, epoch_size=epoch_size, step_size=step_size)
 
