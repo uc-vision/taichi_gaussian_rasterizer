@@ -41,11 +41,14 @@ class ParameterClass():
     ]
 
     self.optimizer = optimizer(param_groups, **optim_kwargs)
+    self.optim_kwargs = optim_kwargs
+
     if optimizer_state is not None:
       tensor_state, other_state = optimizer_state
 
       for k in tensor_state.keys():
-        self.optimizer.state[self.tensors[k]] = {**tensor_state[k].to_dict(), **other_state[k]}
+          assert k in self.tensors.keys(), f"state parameter {k} not in {self.tensors.keys()}"
+          self.optimizer.state[self.tensors[k]] = {**tensor_state[k].to_dict(), **other_state[k]}
 
   
   @property
@@ -142,7 +145,8 @@ class ParameterClass():
       f(self.tensors), 
       parameter_groups=self.parameter_groups, 
       optimizer_state=(f(self.tensor_state), self.other_state),
-      optimizer=type(self.optimizer)
+      optimizer=type(self.optimizer),
+      **self.optim_kwargs
     )
   
 
@@ -158,7 +162,8 @@ class ParameterClass():
       self.tensors.replace(**kwargs), 
       parameter_groups=self.parameter_groups, 
       optimizer_state=self.optimizer_state,
-      optimizer=type(self.optimizer)
+      optimizer=type(self.optimizer),
+      **self.optim_kwargs
     )
   
 
@@ -178,7 +183,7 @@ class ParameterClass():
     return self.tensors.batch_dims
 
   def _get_state(self, f):
-     return {name:f(self.optimizer.state[param])
+    return {name:f(self.optimizer.state[param])
               for name, param in self.tensors.items()
                 if param in self.optimizer.state}
 
@@ -209,9 +214,12 @@ class ParameterClass():
       return self.tensors[idx]
     else:
       state = (self.tensor_state[idx], self.other_state)
-      return ParameterClass(self.tensors[idx], self.parameter_groups, state, optimizer=type(self.optimizer))
+      return ParameterClass(self.tensors[idx], self.parameter_groups, state, optimizer=type(self.optimizer), **self.optim_kwargs)
   
   def append_tensors(self, tensors:TensorDict, tensor_state:Optional[TensorDict]=None):
+    if tensor_state is not None:
+      assert tensors.shape == tensor_state.shape, f"{tensors.shape} != {tensor_state.shape}"
+
     assert set(tensors.keys()) == set(self.tensors.keys()), f"{tensors.keys()} != {self.tensors.keys()}"
     n = tensors.batch_size[0]
 
@@ -221,7 +229,8 @@ class ParameterClass():
     return ParameterClass(torch.cat([self.tensors, tensors]), 
                           self.parameter_groups, 
                           optimizer_state=(torch.cat([self.tensor_state, tensor_state]), self.other_state), 
-                          optimizer=type(self.optimizer))
+                          optimizer=type(self.optimizer),
+                          **self.optim_kwargs)
 
   def append(self, params:'ParameterClass'):
     return self.append_tensors(params.tensors)

@@ -15,6 +15,7 @@ from taichi_splatting.spherical_harmonics import  evaluate_sh_at
 from taichi_splatting.perspective import (CameraParams)
 
 from taichi_splatting.perspective.projection import project_to_image
+from taichi_splatting.taichi_queue import TaichiQueue
 from taichi_splatting.torch_lib.projection import ndc_depth
 
 
@@ -58,12 +59,20 @@ class Rendering:
 
   @property
   def point_scale(self):
-    return self.gaussians2d[:, 4:6] * self.config.gaussian_scale
-  
+    return self.gaussians2d[:, 4:6]
+
   @property
   def point_opacity(self):
     return self.gaussians2d[:, 6]
-  
+
+
+  @property
+  def gaussian_scale(self):
+    """ Factor of the gaussian bounds used for culling,
+     Original gaussian splatting uses gaussian_scale = 3.0
+   """
+    return torch.sqrt(2 * torch.log(self.point_opacity / self.config.alpha_threshold))
+
 
   @property
   def point_radii(self):
@@ -172,7 +181,7 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
 
       render_depth:bool = False,  use_depth16:bool = False, render_median_depth:bool = False, use_ndc_depth:bool = False):
 
-  ndc_depths = ndc_depth(depths, camera_params.near_plane, camera_params.far_plane)
+  ndc_depths = TaichiQueue.run_sync(ndc_depth, depths, camera_params.near_plane, camera_params.far_plane)
 
   if render_depth:
     depths = ndc_depth if use_ndc_depth else depths
@@ -209,7 +218,7 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
 
                   camera=camera_params,
                   config=config,
-                  point_visibility = raster.visibility.squeeze(1) if config.compute_visibility else None,  
+                  point_visibility = raster.visibility if config.compute_visibility else None,  
                   point_heuristics=raster.point_heuristics if config.compute_point_heuristics else None,
                   points_in_view=indexes,
 

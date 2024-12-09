@@ -34,8 +34,8 @@ def project_gaussians2d(points: Gaussians2D) -> torch.Tensor:
     
 
 
-def point_basis(points:Gaussians2D):
-  scale = points.scaling
+def point_basis(points:Gaussians2D, eps:float=1e-4):
+  scale = torch.clamp_min(points.scaling, eps)
 
   v1 = points.rotation / torch.norm(points.rotation, dim=1, keepdim=True)
   v2 = torch.stack([-v1[..., 1], v1[..., 0]], dim=-1)
@@ -108,10 +108,11 @@ def repeat_sample_gaussians(samples: torch.Tensor, points: Gaussians2D, n:int=2)
   return (basis @ samples.view(-1, 2, 1)).reshape(-1, n, 2)
 
 
-def uniform_split_gaussians2d(points: Gaussians2D, n:int=2, scaling:Optional[float]=None,  depth_noise:float=1e-2, sep:float=0.7, random_axis:bool=False) -> Gaussians2D:
+def uniform_split_gaussians2d(points: Gaussians2D, n:int=2, scaling:Optional[float]=None,  depth_noise:float=1e-2, sep:float=0.7, random_axis:bool=False, eps:float=1e-6) -> Gaussians2D:
 
   if random_axis:
-    axis_probs = F.normalize(points.scaling, dim=1)
+    axis_probs = F.normalize(points.scaling + eps, p=1, dim=1)
+
     # Randomly choose axis proportional to the scaling
     axis = torch.multinomial(axis_probs, num_samples=1).squeeze(1)
   else:

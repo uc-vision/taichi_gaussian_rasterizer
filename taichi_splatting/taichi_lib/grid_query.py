@@ -43,7 +43,7 @@ def separates_bbox(inv_basis:mat2, lower:vec2, upper:vec2) -> bool:
   return separates
 
 
-def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0):
+def make_grid_query(tile_size:int=16, alpha_threshold:float=1. / 255.):
 
   @ti.dataclass
   class OBBGridQuery:
@@ -71,7 +71,9 @@ def make_grid_query(tile_size:int=16, gaussian_scale:float=3.0):
 
   @ti.func 
   def obb_grid_query(v: Gaussian2D.vec, image_size:ivec2) -> OBBGridQuery:
-      mean, axis1, sigma, _ = Gaussian2D.unpack(v)
+      mean, axis1, sigma, alpha = Gaussian2D.unpack(v)
+
+      gaussian_scale = ti.sqrt(2 * ti.log(alpha / alpha_threshold))
       scale = sigma * gaussian_scale
 
       axis2 = vec2(-axis1.y, axis1.x)

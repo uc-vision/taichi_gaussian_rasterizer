@@ -23,7 +23,7 @@ warnings.filterwarnings('ignore', '(.*)that is not a leaf Tensor is being access
 
 
 @cache
-def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur_cov=0.0):
+def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur_cov=0.0, alpha_threshold=1. / 255.):
   dtype = torch_taichi[torch_dtype]
   lib = get_library(dtype)
 
@@ -44,8 +44,6 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
     points: ti.types.ndarray(lib.Gaussian2D.vec, ndim=1),  # (N, 6)
     depth: ti.types.ndarray(lib.vec1, ndim=1),  # (N, 1)
 
-    # other parameters
-    gaussian_scale: dtype
 
   ):
     for idx in range(position.shape[0]):
@@ -57,6 +55,10 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
         cov += lib.vec3([blur_cov, 0, blur_cov])
 
       sigma, v1, v2 = lib.eig(cov)
+
+      alpha = lib.sigmoid(alpha_logit[idx][0])
+      gaussian_scale = ti.sqrt(2 * ti.log(alpha / alpha_threshold))
+
       sx, sy = sigma * gaussian_scale
       lower, upper = lib.ellipse_bounds(mean, v1 * sx, v2 * sy)
 
@@ -73,7 +75,7 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
             mean  = mean,
             axis  = v1,
             sigma = sigma,
-            alpha = lib.sigmoid(alpha_logit[idx][0]),
+            alpha = alpha,
         )
 
 
@@ -122,8 +124,7 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
     @staticmethod
     def forward(ctx, position, log_scaling, rotation, alpha_logit,
                 T_camera_world,
-                projection, image_size, depth_range,
-                gaussian_scale):
+                projection, image_size, depth_range):
       dtype, device = projection.dtype, projection.device
 
       n = position.shape[0]
@@ -138,7 +139,7 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
             T_camera_world, projection, 
             lib.vec2(image_size), lib.vec2(depth_range),
             points, depth,  # outputs
-            gaussian_scale)
+            )
       
       
       ctx.indexes = torch.nonzero(depth[:, 0]).squeeze(1)
@@ -150,7 +151,6 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
       ctx.image_size = image_size
       ctx.depth_range = depth_range
 
-      ctx.gaussian_scale = gaussian_scale
       ctx.mark_non_differentiable(ctx.indexes)
 
       ctx.save_for_backward(*gaussian_tensors,
@@ -181,7 +181,7 @@ def project_to_image_function(torch_dtype=torch.float32, clamp_margin=0.15, blur
 
         return (*[tensor.grad for tensor in gaussian_tensors], 
                 T_camera_world.grad, projection.grad,
-                None, None, None)
+                None, None)
 
   return _module_function
 
@@ -194,14 +194,12 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
           image_size:Tuple[Integral, Integral],
           depth_range:Tuple[float, float],
 
-          gaussian_scale:float=3.0,
           blur_cov:float=0.0,
-          
-          clamp_margin:float=0.15
-
+          clamp_margin:float=0.15,
+          alpha_threshold:float=1. / 255.
           ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
   
-  _module_function = project_to_image_function(position.dtype, clamp_margin, blur_cov)
+  _module_function = project_to_image_function(position.dtype, clamp_margin, blur_cov, alpha_threshold)
   n = position.shape[0]
 
   return _module_function.apply(
@@ -213,9 +211,7 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
     T_camera_world[:3].unsqueeze(0).expand(n, 3, 4).contiguous(),
     projection.unsqueeze(0).expand(n, 4).contiguous(),
     image_size,
-
-    depth_range,
-    gaussian_scale)
+    depth_range)
 
 @beartype
 def project_to_image(gaussians:Gaussians3D,  camera_params: CameraParams, config:RasterConfig,
@@ -228,7 +224,7 @@ def project_to_image(gaussians:Gaussians3D,  camera_params: CameraParams, config
   Parameters:
     gaussians3D: 3D gaussian representation tensorclass
     camera_params: CameraParams
-    gaussian_scale: float - scale of the gaussian 'radius' to use for culling
+    config: RasterConfig
 
   Returns:
     points:    torch.Tensor (N, 6)  - packed 2D gaussians in image space
@@ -245,9 +241,9 @@ def project_to_image(gaussians:Gaussians3D,  camera_params: CameraParams, config
       camera_params.image_size,
       camera_params.depth_range,
 
-      config.gaussian_scale,
       config.blur_cov,
-      config.clamp_margin
+      config.clamp_margin,
+      config.alpha_threshold
   )
 
 

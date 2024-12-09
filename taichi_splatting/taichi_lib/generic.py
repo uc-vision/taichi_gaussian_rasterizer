@@ -479,4 +479,8 @@ def make_library(dtype=ti.f32):
       return q_rot.xyz
 
 
+  @ti.func
+  def lerp(t: dtype, a: ti.template(), b: ti.template()):
+    return a * t + b * (1.0 - t)
+
   return SimpleNamespace(**locals())

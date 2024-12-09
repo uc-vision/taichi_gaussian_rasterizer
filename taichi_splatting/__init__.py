@@ -7,6 +7,7 @@ from .spherical_harmonics import evaluate_sh_at
 
 
 from . import perspective
+from .taichi_queue import TaichiQueue
 
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
   'rasterize_with_tiles',
   
   'perspective',
+  'TaichiQueue',
 ]

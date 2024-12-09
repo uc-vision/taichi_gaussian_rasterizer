@@ -18,17 +18,14 @@ class RasterConfig:
 
   margin_tiles: int = 3
 
-  # cutoff N standard deviations from mean
-  gaussian_scale: float = 3.0 
-
   # clamp position to within this margin of the image for affine jaocbian
   clamp_margin: float = 0.15  
   
   # Use anti-aliasing implementation
-  antialias: bool = True  
+  antialias: bool = False  
 
   # blur covariance matrix by this factor
-  blur_cov: float = 0.0
+  blur_cov: float = 0.3
 
   clamp_max_alpha: float = 0.99
   alpha_threshold: float = 1. / 255.

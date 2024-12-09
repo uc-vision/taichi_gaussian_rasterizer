@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from taichi_splatting.perspective import CameraParams
 from taichi_splatting.data_types import Gaussians3D, RasterConfig
+from taichi_splatting.taichi_queue import queued
 from taichi_splatting.torch_lib.transforms import make_homog, quat_to_mat, transform44
 
 def radii_from_cov(uv_cov:torch.Tensor):
@@ -116,17 +117,16 @@ def cov_to_conic(cov: torch.Tensor) -> torch.Tensor:
   inv_det = 1 / (x * z - y * y)
   return torch.stack([inv_det * z, -inv_det * y, inv_det * x], -1)
 
-
 @torch.compile
 def ndc_depth(depth: torch.Tensor, near: float, far: float) -> torch.Tensor:
   # ndc from 0 (near) to 1 (far)
   return 1 - (1./depth - 1./far) / (1./near - 1./far)
 
+
 @torch.compile
 def inverse_ndc_depth(ndc_depth: torch.Tensor, near: float, far: float) -> torch.Tensor:
   # inverse ndc from 0 (near) to 1 (far) -> depth
   return 1.0 / ((1.0 - ndc_depth) * (1/near - 1/far) + 1/far)
-
 
 @torch.compile
 def generalized_ndc(depth: torch.Tensor, near: float, far: float, k:float) -> torch.Tensor:
@@ -156,7 +156,7 @@ def unpack_activate(vec: torch.Tensor
 def apply(position, log_scaling, rotation, alpha_logit, 
           T_camera_world,
           projection, image_size, depth_range, 
-          gaussian_scale=3.0, blur_cov=0.0, clamp_margin=0.15):
+         blur_cov=0.0, clamp_margin=0.15, alpha_threshold=1. / 255.):
   
 
   T_camera_world = T_camera_world.squeeze(0)
@@ -172,7 +172,8 @@ def apply(position, log_scaling, rotation, alpha_logit,
   cov += torch.eye(2, device=cov.device, dtype=cov.dtype) * blur_cov
   
   sigma, v1, v2 = eig(cov)
-  scale = sigma * gaussian_scale
+  alpha = alpha_logit.sigmoid()
+  scale = sigma * torch.sqrt(torch.log(alpha_threshold / alpha))
   lower, upper = ellipse_bounds(mean, v1 * scale[:, 0:1], v2 * scale[:, 1:2])
 
     
@@ -182,7 +183,7 @@ def apply(position, log_scaling, rotation, alpha_logit,
   )
 
   
-  points = torch.concatenate([mean[:, :2], v1, sigma, alpha_logit.sigmoid()], axis=-1)
+  points = torch.concatenate([mean[:, :2], v1, sigma, alpha], axis=-1)
   vis_idx = in_view.nonzero(as_tuple=True)[0]
 
   return points[in_view], z[in_view].unsqueeze(1), vis_idx
@@ -193,4 +194,4 @@ def project_to_image(gaussians:Gaussians3D, camera_params: CameraParams, config:
 
   return apply(*gaussians.shape_tensors(),
           camera_params.T_image_camera, camera_params.T_camera_world, 
-          camera_params.blur_cov)
+          config.blur_cov, config.clamp_margin, config.alpha_threshold)
