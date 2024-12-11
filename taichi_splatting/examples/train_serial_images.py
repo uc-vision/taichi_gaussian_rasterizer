@@ -196,8 +196,8 @@ def main():
     # Create the MLP
     optimizer = GaussianMixer(inputs=n_inputs,
                               outputs=n_inputs,
-                              n_render=128,
-                              n_base=256).to(device)
+                              n_render=16,
+                              n_base=128).to(device)
     optimizer.to(device=device)
 
     # print(optimizer)
