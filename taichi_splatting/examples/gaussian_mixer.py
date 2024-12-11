@@ -254,8 +254,8 @@ class GaussianMixer(nn.Module):
       features=features, 
       image_size=(w, h), 
       config=raster_config)
-    raster_image = normalize_raster(raster_image=raster.image,raster_alpha=raster_alpha, eps=1e-12)
-    return raster_image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> 1, n_render, H, W
+    # raster_image = normalize_raster(raster_image=raster.image,raster_alpha=raster_alpha, eps=1e-12)
+    return raster.image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> 1, n_render, H, W
 
   def sample_positions(self, image:torch.Tensor,  # 1, n_render, H, W
                        positions:torch.Tensor,    # B, 2
