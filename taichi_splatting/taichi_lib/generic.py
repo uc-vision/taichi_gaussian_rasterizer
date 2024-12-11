@@ -236,6 +236,10 @@ def make_library(dtype=ti.f32):
     return (uv - extent), (uv + extent)
   
 
+  @ti.func
+  def l1_norm(v:ti.template()):
+     return ti.abs(v).sum()
+
 
   
   @ti.func 
