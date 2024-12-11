@@ -86,12 +86,12 @@ class Trainer:
             scale_reg = self.scale_reg * scale.pow(2).mean()
             depth_reg = 0.0 * gaussians.z_depth.sum()
 
-            # l1 = torch.nn.functional.l1_loss(raster.image, self.ref_image)
-            l1 = torch.nn.functional.mse_loss(raster.image, self.ref_image)
-            # print(raster.image.shape)
-            # print(self.ref_image.shape)
-            # l1= fused_ssim(raster.image.unsqueeze(0), self.ref_image.unsqueeze(0),train=True)
-            loss = l1 + opacity_reg + scale_reg + depth_reg
+            l1 = torch.nn.functional.l1_loss(raster.image, self.ref_image)
+            mse = torch.nn.functional.mse_loss(raster.image, self.ref_image)
+            # # print(raster.image.shape)
+            # # print(self.ref_image.shape)
+            ssim= 1 - fused_ssim(raster.image.unsqueeze(0), self.ref_image.unsqueeze(0),train=True)
+            loss =  mse + ssim *0.1+ l1*0.1  + opacity_reg + scale_reg + depth_reg
             loss.backward()
 
             return dict(loss=loss.item(),
@@ -196,8 +196,8 @@ def main():
     # Create the MLP
     optimizer = GaussianMixer(inputs=n_inputs,
                               outputs=n_inputs,
-                              n_render=16,
-                              n_base=128).to(device)
+                              n_render=128,
+                              n_base=256).to(device)
     optimizer.to(device=device)
 
     # print(optimizer)
@@ -209,7 +209,7 @@ def main():
     ]
 
     optimizer = torch.compile(optimizer)
-    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.00001)
+    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)#0.00001 for MSE, #
 
     config = RasterConfig()
 

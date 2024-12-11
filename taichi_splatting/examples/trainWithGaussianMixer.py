@@ -193,14 +193,14 @@ def main():
 
 
   # Create the MLP
-  optimizer = GaussianMixer(inputs=n_inputs, outputs=n_inputs, n_render=16, n_base=128).to(device)
+  optimizer = GaussianMixer(inputs=n_inputs, outputs=n_inputs, n_render=16, n_base=1024).to(device)
   optimizer.to(device=device)
 
   # print(optimizer)
 
 
   optimizer = torch.compile(optimizer)
-  optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)
+  optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)
 
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255 

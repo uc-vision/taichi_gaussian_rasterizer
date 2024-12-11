@@ -13,12 +13,140 @@ from taichi_splatting.tests.random_data import random_2d_gaussians
 from renderer2d import Gaussians2D
 from mlp import mlp, mlp_body
 from taichi_splatting.rasterizer.function import rasterize
+def normalize_raster(raster_image: torch.Tensor, raster_alpha: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """
+    Normalizes the raster image using raster.alpha with an epsilon for numerical stability.
+    
+    Args:
+        raster_image (torch.Tensor): The raster image tensor (e.g., shape [B, C, H, W]).
+        raster_alpha (torch.Tensor): The alpha tensor for normalization (e.g., shape [B, 1, H, W]).
+        eps (float): A small epsilon value to prevent division by zero.
+        
+    Returns:
+        torch.Tensor: The normalized raster image.
+    """
+    normalized_image = raster_image / (raster_alpha + eps)
+    return normalized_image
 
 def group_norm(num_channels:int):
   return nn.GroupNorm(num_groups=1, num_channels=num_channels, affine=False)
 
+raster_alpha = 10
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class AttentionGate(nn.Module):
+  def __init__(self, in_channels, inter_channels):
+    super(AttentionGate, self).__init__()
+    self.theta_x = nn.Conv2d(in_channels, inter_channels, kernel_size=1, stride=1, padding=0)
+    self.phi_g = nn.Conv2d(in_channels, inter_channels, kernel_size=1, stride=1, padding=0)
+    self.psi = nn.Conv2d(inter_channels, 1, kernel_size=1, stride=1, padding=0)
+    self.relu = nn.ReLU()
+    self.sigmoid = nn.Sigmoid()
+
+  def forward(self, x, g):
+    theta_x = self.theta_x(x)
+    phi_g = self.phi_g(g)
+    f = self.relu(theta_x + phi_g)
+    # print(f"f: {f.shape}")
+    psi = self.sigmoid(self.psi(f))
+    return x * psi
+
+class UNet4(nn.Module):
+  def __init__(self, dropout_rate=0.5, l2_lambda=0.01):
+    super(UNet4, self).__init__()
+    def conv_block(in_channels, out_channels, dropout_rate):
+      return nn.Sequential(
+          nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+          nn.BatchNorm2d(out_channels),
+          nn.ReLU(),
+          # nn.Dropout(dropout_rate)
+      )
+
+    def upconv_block(in_channels, out_channels):
+      return nn.Sequential(nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2))
+    self.layer1 = conv_block(19, 64, dropout_rate)
+    self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+    self.layer2 = conv_block(64, 128, dropout_rate)
+    self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+    self.layer3 = conv_block(128, 256, dropout_rate)
+    self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+    # Bottleneck
+    self.layer4 = conv_block(256, 512, dropout_rate)
+
+    # Expanding Path
+    self.upconv3 = upconv_block(512, 256)
+    self.attention3 = AttentionGate(256, 128)
+    self.layer5 = conv_block(512, 256, dropout_rate)
+
+    self.upconv2 = upconv_block(256, 128)
+    self.attention2 = AttentionGate(128, 64)
+    self.layer6 = conv_block(256, 128, dropout_rate)
+
+    self.upconv1 = upconv_block(128, 64)
+    self.attention1 = AttentionGate(64, 32)
+    self.layer7 = conv_block(128, 19, dropout_rate)
+
+    # Output Layer
+    self.output_layer = nn.Conv2d(19, 16, kernel_size=1)
+
+
+  
+
+    # Contracting Path
+      
+  def forward(self, x):
+    # Add positional distance information
+    # print(f"x:{x.shape}")
+    # Contracting Path
+    x1 = self.layer1(x)
+    p1 = self.pool1(x1)
+    # print(f"x1:{x1.shape}")
+    x2 = self.layer2(p1)
+    p2 = self.pool2(x2)
+    # print(f"x2:{x2.shape}")
+    x3 = self.layer3(p2)
+    p3 = self.pool3(x3)
+    # print(f"x3:{x3.shape}")
+    # Bottleneck
+    x4 = self.layer4(p3)
+    # print(f"x4:{x4.shape}")
+    # Expanding Path
+    up3 = self.upconv3(x4)
+    # print(f"up3:{up3.shape}")
+    
+    att3 = self.attention3(x3, up3)
+    # print(f"att3{att3}")
+    concat3 = torch.cat([up3, att3], dim=1)
+    x5 = self.layer5(concat3)
+    # print(f"x5:{x5.shape}")
+    up2 = self.upconv2(x5)
+    att2 = self.attention2(x2, up2)
+    concat2 = torch.cat([up2, att2], dim=1)
+    x6 = self.layer6(concat2)
+    
+
+    up1 = self.upconv1(x6)
+    
+    att1 = self.attention1(x1, up1)
+    concat1 = torch.cat([up1, att1], dim=1)
+    x7 = self.layer7(concat1)
+    # print(x.shape)
+
+    # Output Layer
+    output = self.output_layer(x7)
+
+    return output
+
+
+
 class UNet2D(nn.Module):
-  def __init__(self, f:int, activation:Callable=nn.ReLU, norm:Callable=group_norm) -> None:
+  def __init__(self, f:int, activation:Callable=nn.ReLU, norm:Callable=nn.BatchNorm2d) -> None:
     super().__init__()
 
     # Downsampling: f -> 2f -> 4f -> 8f -> 16f
@@ -30,10 +158,13 @@ class UNet2D(nn.Module):
                      kernel_size=3, padding=1, stride=2),
             norm(out_channels),
             activation(),
+            # nn.MaxPool2d(kernel_size=2, stride=2), 
+            # nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+
         )
 
     self.down_layers = nn.ModuleList([
-        make_down_layer(i) for i in range(6)
+        make_down_layer(i) for i in range(2)
     ])
 
     # Up path: 16f -> 8f -> 4f -> 2f -> f
@@ -44,10 +175,11 @@ class UNet2D(nn.Module):
             nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2),
             norm(out_channels),
             activation(),
+            
         )
 
     self.up_layers = nn.ModuleList(reversed([
-        make_up_layer(i) for i in range(6)
+        make_up_layer(i) for i in range(2)
     ]))
 
     self.final_layer = nn.Sequential(
@@ -70,23 +202,47 @@ class UNet2D(nn.Module):
         x = layer(x) + intermediates[i]
         
     return self.final_layer(x)
+class DenoisingLayer(nn.Module):
+    
+    def __init__(self,channels):
+        super(DenoisingLayer, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(channels, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.AvgPool2d(kernel_size=8, stride=4),  # Add MaxPooling
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=8, stride=4)   # Add MaxPooling
+        )
+        self.decoder = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, channels, kernel_size=3, padding=1)
+        )
+
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
 
 
+        
 class GaussianMixer(nn.Module):
   def __init__(self, inputs:int, outputs:int, 
                n_render:int=16,
                n_base:int=64):
     super().__init__()
     
-    self.init_mlp = mlp_body(inputs, hidden_channels=[n_base] * 2, 
+    self.init_mlp = mlp_body(inputs, hidden_channels=[n_render] * 2, 
                         activation=nn.ReLU, norm=nn.LayerNorm)
     
     self.down_project = nn.Linear(n_base, n_render)
     
     self.up_project = nn.Linear(n_render+3, n_base)
-    self.unet = UNet2D(f=n_render+3, activation=nn.ReLU)
-
-    self.final_mlp = mlp(n_base, outputs=outputs, hidden_channels=[n_base] * 2, 
+    self.unet_4 = UNet4()
+    self.unet = UNet2D(f=n_render, activation=nn.ReLU)
+    self.denoising_layer = DenoisingLayer(n_render+3)
+    self.final_mlp = mlp(n_render, outputs=outputs, hidden_channels=[n_render] * 2, 
                          activation=nn.ReLU, norm=nn.LayerNorm, output_scale=1e-12)
 
 
@@ -100,7 +256,8 @@ class GaussianMixer(nn.Module):
       features=features, 
       image_size=(w, h), 
       config=raster_config)
-    return raster.image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> 1, n_render, H, W
+    raster_image = normalize_raster(raster_image=raster.image,raster_alpha=raster_alpha, eps=1e-12)
+    return raster_image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> 1, n_render, H, W
 
   def sample_positions(self, image:torch.Tensor,  # 1, n_render, H, W
                        positions:torch.Tensor,    # B, 2
@@ -120,20 +277,21 @@ class GaussianMixer(nn.Module):
     
     
     feature = self.init_mlp(x)      # B,inputs -> B, n_base
-    x = self.down_project(feature)  # B, n_base -> B, n_render
+    # x = self.down_project(feature)  # B, n_base -> B, n_render
 
-    image = self.render(x.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> 1, n_render, H, W
+    image = self.render(feature.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> 1, n_render, H, W
     precon_image = ref_image.unsqueeze(0).permute(0,3,1,2)
-    con_image = torch.cat((image,precon_image),dim=1)
     
+    con_image = torch.cat((precon_image,image),dim=1)
+    # image = self.unet_4(con_image)
 
-    
-    image = self.unet(con_image)   # B, n_render, H, W -> B, n_render, H, W
-    
+    image = self.unet(image)   # B, n_render, H, W -> B, n_render, H, W
+    # image = self.denoising_layer(image)
     # sample at gaussian centres from the unet output
     x = self.sample_positions(image, gaussians.position) 
-    x = self.up_project(x)              # B, n_render -> B, n_base
-
+    # x = self.up_project(x)              # B, n_render -> B, n_base
+    # print(f"x {x.shape}")
+    # print(f"feature {feature.shape}")
     # shortcut from output of init_mlp
     x = self.final_mlp(x + feature) 
     # print(x.shape)    # B, n_base -> B, outputs
