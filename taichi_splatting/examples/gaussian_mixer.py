@@ -62,7 +62,7 @@ class UNet4(nn.Module):
           nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
           nn.BatchNorm2d(out_channels),
           nn.ReLU(),
-          # nn.Dropout(dropout_rate)
+          nn.Dropout(dropout_rate)
       )
 
     def upconv_block(in_channels, out_channels):
@@ -93,7 +93,7 @@ class UNet4(nn.Module):
     self.layer7 = conv_block(128, 19, dropout_rate)
 
     # Output Layer
-    self.output_layer = nn.Conv2d(19, 16, kernel_size=1)
+    self.output_layer = nn.Conv2d(19, 19, kernel_size=1)
 
 
   
@@ -158,8 +158,8 @@ class UNet2D(nn.Module):
                      kernel_size=3, padding=1, stride=2),
             norm(out_channels),
             activation(),
-            # nn.MaxPool2d(kernel_size=2, stride=2), 
-            # nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            nn.MaxPool2d(kernel_size=2, stride=2), 
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
 
         )
 
@@ -233,16 +233,16 @@ class GaussianMixer(nn.Module):
                n_base:int=64):
     super().__init__()
     
-    self.init_mlp = mlp_body(inputs, hidden_channels=[n_render] * 2, 
+    self.init_mlp = mlp_body(inputs, hidden_channels=[n_base] * 2, 
                         activation=nn.ReLU, norm=nn.LayerNorm)
     
     self.down_project = nn.Linear(n_base, n_render)
     
     self.up_project = nn.Linear(n_render+3, n_base)
     self.unet_4 = UNet4()
-    self.unet = UNet2D(f=n_render, activation=nn.ReLU)
+    self.unet = UNet2D(f=n_render+3, activation=nn.ReLU)
     self.denoising_layer = DenoisingLayer(n_render+3)
-    self.final_mlp = mlp(n_render, outputs=outputs, hidden_channels=[n_render] * 2, 
+    self.final_mlp = mlp(n_base, outputs=outputs, hidden_channels=[n_base] * 2, 
                          activation=nn.ReLU, norm=nn.LayerNorm, output_scale=1e-12)
 
 
@@ -277,21 +277,19 @@ class GaussianMixer(nn.Module):
     
     
     feature = self.init_mlp(x)      # B,inputs -> B, n_base
-    # x = self.down_project(feature)  # B, n_base -> B, n_render
+    x = self.down_project(feature)  # B, n_base -> B, n_render
 
-    image = self.render(feature.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> 1, n_render, H, W
+    image = self.render(x.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> 1, n_render, H, W
     precon_image = ref_image.unsqueeze(0).permute(0,3,1,2)
     
     con_image = torch.cat((precon_image,image),dim=1)
     # image = self.unet_4(con_image)
-
-    image = self.unet(image)   # B, n_render, H, W -> B, n_render, H, W
+    image = self.unet(con_image)   # B, n_render, H, W -> B, n_render, H, W
     # image = self.denoising_layer(image)
     # sample at gaussian centres from the unet output
     x = self.sample_positions(image, gaussians.position) 
-    # x = self.up_project(x)              # B, n_render -> B, n_base
-    # print(f"x {x.shape}")
-    # print(f"feature {feature.shape}")
+    x = self.up_project(x)              # B, n_render -> B, n_base
+
     # shortcut from output of init_mlp
     x = self.final_mlp(x + feature) 
     # print(x.shape)    # B, n_base -> B, outputs

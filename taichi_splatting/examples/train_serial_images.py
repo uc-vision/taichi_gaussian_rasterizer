@@ -209,7 +209,7 @@ def main():
     ]
 
     optimizer = torch.compile(optimizer)
-    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)#0.00001 for MSE, #
+    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.00001)#0.00001 for MSE, #
 
     config = RasterConfig()
 
