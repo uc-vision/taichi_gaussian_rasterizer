@@ -146,7 +146,7 @@ class UNet4(nn.Module):
 
 
 class UNet2D(nn.Module):
-  def __init__(self, f:int, activation:Callable=nn.ReLU, norm:Callable=nn.BatchNorm2d) -> None:
+  def __init__(self, f:int, activation:Callable=nn.ReLU, norm:Callable=group_norm) -> None:
     super().__init__()
 
     # Downsampling: f -> 2f -> 4f -> 8f -> 16f
@@ -239,7 +239,7 @@ class GaussianMixer(nn.Module):
     self.up_project = nn.Linear(n_render, n_base)
     self.unet_4 = UNet4()
     self.unet = UNet2D(f=n_render+3, activation=nn.ReLU)
-    self.denoising_layer = DenoisingLayer(n_render+3)
+    self.denoising_layer = DenoisingLayer(n_render)
     self.final_mlp = mlp(n_base, outputs=outputs, hidden_channels=[n_base] * 2, 
                          activation=nn.ReLU, norm=nn.LayerNorm, output_scale=1e-12)
 
@@ -285,8 +285,8 @@ class GaussianMixer(nn.Module):
     # image = self.unet(con_image)   # B, n_render, H, W -> B, n_render, H, W
     # image = self.denoising_layer(image)
     # sample at gaussian centres from the unet output
-    x = self.sample_positions(image, gaussians.position) 
-    x = self.up_project(x)              # B, n_render -> B, n_base
+    # x = self.sample_positions(image, gaussians.position) 
+    # x = self.up_project(x)              # B, n_render -> B, n_base
 
     # shortcut from output of init_mlp
     x = self.final_mlp( feature) 
