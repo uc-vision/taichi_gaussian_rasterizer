@@ -211,7 +211,6 @@ def backward_kernel(config: RasterConfig,
 
               if ti.static(config.compute_point_heuristics):
                 gaussian_point_heuristics += vec2(
-                  # weight * ti.abs(alpha_grad_from_feature).sum(),
                   weight,
                   lib.l1_norm(pos_grad)
                 )
