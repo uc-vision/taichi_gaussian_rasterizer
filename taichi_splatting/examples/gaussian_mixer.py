@@ -158,8 +158,6 @@ class UNet2D(nn.Module):
                      kernel_size=3, padding=1, stride=2),
             norm(out_channels),
             activation(),
-            nn.MaxPool2d(kernel_size=2, stride=2), 
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
 
         )
 
@@ -284,10 +282,10 @@ class GaussianMixer(nn.Module):
     
     con_image = torch.cat((precon_image,image),dim=1)
     # image = self.unet_4(con_image)
-    image = self.unet(con_image)   # B, n_render, H, W -> B, n_render, H, W
+    # image = self.unet(con_image)   # B, n_render, H, W -> B, n_render, H, W
     # image = self.denoising_layer(image)
     # sample at gaussian centres from the unet output
-    x = self.sample_positions(image, gaussians.position) 
+    x = self.sample_positions(con_image, gaussians.position) 
     x = self.up_project(x)              # B, n_render -> B, n_base
 
     # shortcut from output of init_mlp
