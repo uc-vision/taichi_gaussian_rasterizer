@@ -236,7 +236,7 @@ class GaussianMixer(nn.Module):
     
     self.down_project = nn.Linear(n_base, n_render)
     
-    self.up_project = nn.Linear(n_render+3, n_base)
+    self.up_project = nn.Linear(n_render, n_base)
     self.unet_4 = UNet4()
     self.unet = UNet2D(f=n_render+3, activation=nn.ReLU)
     self.denoising_layer = DenoisingLayer(n_render+3)
@@ -285,7 +285,7 @@ class GaussianMixer(nn.Module):
     # image = self.unet(con_image)   # B, n_render, H, W -> B, n_render, H, W
     # image = self.denoising_layer(image)
     # sample at gaussian centres from the unet output
-    x = self.sample_positions(con_image, gaussians.position) 
+    x = self.sample_positions(image, gaussians.position) 
     x = self.up_project(x)              # B, n_render -> B, n_base
 
     # shortcut from output of init_mlp
