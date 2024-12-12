@@ -20,22 +20,20 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
 
   gaussian_pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
 
-  @ti.dataclass
-  class RNG:
-    state: ti.u32
 
-    @ti.func
-    def next(self):
-      # xoshiro128** algorithm
-      result = ((self.state * ti.u32(5)) << ti.u32(7)) 
-      
-      # Update state
-      self.state ^= self.state << ti.u32(13)
-      self.state ^= self.state >> ti.u32(17)
-      self.state ^= self.state << ti.u32(5)
-      
-      return result / 4294967295.0  # Normalize to [0,1)
 
+  @ti.func
+  def xoshiro128(state: ti.u32):
+    # xoshiro128** algorithm
+    result = ((state * ti.u32(5)) << ti.u32(7)) 
+    
+    # Update state
+    state ^= state << ti.u32(13)
+    state ^= state >> ti.u32(17)
+    state ^= state << ti.u32(5)
+    
+    f = result / 4294967295.0  # Normalize to [0,1)
+    return f, state
 
   @ti.func
   def wang_hash(x: ti.u32, y: ti.u32, seed: ti.u32) -> ti.u32:
@@ -61,7 +59,6 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
         prob *= p / (1.0 - p)  * ((samples-k)/(k+1))
             
     return result
-
 
 
 
@@ -126,7 +123,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       remaining = ti.i32(samples) if in_bounds else 0
 
       # Better hash function for initialization
-      rng = RNG(wang_hash(ti.u32(pixel.x), ti.u32(pixel.y), ti.u32(seed)))
+      rng_state = wang_hash(ti.u32(pixel.x), ti.u32(pixel.y), ti.u32(seed))
 
       # Loop through the range in groups of tile_area
       for point_group_id in range(num_point_groups):
@@ -166,7 +163,8 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
           alpha = point_alpha * gaussian_alpha
           alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
 
-          new_hits = min(remaining, bernoulli(rng.next(), alpha, samples))
+          u, rng_state = xoshiro128(rng_state)
+          new_hits = min(remaining, bernoulli(u, alpha, samples))
           if new_hits > 0:
               accum_feature += tile_feature[in_group_idx] * new_hits / samples
               remaining -= new_hits
