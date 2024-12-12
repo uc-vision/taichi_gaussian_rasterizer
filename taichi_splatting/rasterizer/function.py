@@ -68,7 +68,7 @@ def render_function(config:RasterConfig,
 
       forward(gaussians, features, 
         tile_overlap_ranges, overlap_to_point,
-        image_feature, seed)
+        image_feature, image_hits, seed)
 
       # Non differentiable parameters
       ctx.overlap_to_point = overlap_to_point

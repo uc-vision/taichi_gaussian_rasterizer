@@ -59,6 +59,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
             accum_features = thread_features(0.0)
             remaining_samples = thread_i32(config.samples)
             rng_states = thread_u32(0)
+            hit_index = thread_i32(0)
 
             # Initialize RNG states and check bounds for all pixels in tile
             for i, offset in ti.static(pixel_tile):
@@ -115,8 +116,12 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                                 accum_features[i, :] += (
                                     tile_feature[in_group_idx] * new_hits / config.samples
                                 )
-                                # image_hits[pixel.y, pixel.x, :] = new_hits
+                                index =  group_start_offset + in_group_idx + 1
+                                encoded = ti.u32(index) << ti.u32(6) | ti.u32(new_hits)
+                                image_hits[pixel.y, pixel.x, hit_index[i]] = encoded
+                                hit_index[i] += 1
                                 remaining_samples[i] -= new_hits
+
 
             # Write final results
             for i, offset in ti.static(pixel_tile):
