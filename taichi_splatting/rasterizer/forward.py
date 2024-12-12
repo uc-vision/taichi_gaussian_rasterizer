@@ -115,21 +115,19 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
 
           u = ti.random()
           F = 0.0
-          prob = (1 - alpha)**samples
+          prob = (1 - alpha)**remaining
           
-          result = samples
-          if remaining > 0:
-            for k in ti.static(range(samples)):
-                F += prob
-                if u <= F:
-                    result = min(k, result)
-                prob *= alpha / (1.0 - alpha)  * ti.static(factors[k])
-
-                accum_feature += tile_feature[in_group_idx] * ti.static(1 / samples)
+          for k in range(remaining):
+            F += prob
+            if u <= F:
                 remaining -= 1
-
                 pixel_hits[remaining] = tile_point_id[in_group_idx]
-              
+                accum_feature += tile_feature[in_group_idx] * ti.static(1 / samples)
+                break
+
+            prob *= alpha / (1.0 - alpha)  * (samples-k)/(k+1)
+
+
         # end of point group id loop
 
       if in_bounds:
