@@ -30,7 +30,7 @@ def render_function(config:RasterConfig,
                     num_samples=4):
   
     
-  forward = forward_kernel(config, feature_size=feature_size, dtype=torch_taichi[dtype])
+  forward = forward_kernel(config, feature_size=feature_size, dtype=torch_taichi[dtype], samples=num_samples)
   backward = backward_kernel(config, points_requires_grad,
                              features_requires_grad, 
                              feature_size, dtype=torch_taichi[dtype])
@@ -65,7 +65,7 @@ def render_function(config:RasterConfig,
 
       forward(gaussians, features, 
         tile_overlap_ranges, overlap_to_point,
-        image_feature, image_alpha, image_hits)
+        image_feature, image_hits)
 
       # Non differentiable parameters
       ctx.overlap_to_point = overlap_to_point

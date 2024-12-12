@@ -21,7 +21,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
   gaussian_pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
   factors = [(samples-k)/(k+1) for k in range(samples)]
   
-  hit_vec = ti.types.vector(ti.i32, samples)
+  hit_vec = ti.types.vector(samples, ti.i32)
 
   @ti.kernel
   def _forward_kernel(
@@ -35,7 +35,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       
       # outputs
       image_feature: ti.types.ndarray(feature_vec, ndim=2),  # (H, W, F)
-      pixel_hits: ti.types.ndarray(hit_vec, ndim=2),  # H, W, num_samples
+      image_hits: ti.types.ndarray(hit_vec, ndim=2),  # H, W, num_samples
 
   ):
 
@@ -74,7 +74,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       num_point_groups = (tile_point_count + ti.static(tile_area - 1)) // tile_area
       in_bounds = pixel.x < camera_width and pixel.y < camera_height
 
-      hits = hit_vec(-1)
+      pixel_hits = hit_vec(-1)
       remaining = ti.i32(samples) if in_bounds else 0
 
       # Loop through the range in groups of tile_area
@@ -129,6 +129,8 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
               
         # end of point group id loop
     # end of pixel loop
+    if in_bounds:
+      image_hits[pixel.y, pixel.x] = pixel_hits
 
   return _forward_kernel
 
