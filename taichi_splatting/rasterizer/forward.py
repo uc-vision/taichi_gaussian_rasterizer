@@ -20,30 +20,32 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
 
   gaussian_pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
 
-
-#   unsigned TausStep(unsigned &z, int S1, int S2, int S3, unsigned M)
-# {
-#   unsigned b = (((z << S1) ^ z) >> S2);
-#   return z = (((z & M) << S3) ^ b);
-# }
-  s1 = 13
-  s2 = 19
-  s3 = 12
-  m = 4294967294
-
   @ti.dataclass
   class RNG:
     state: ti.u32
 
     @ti.func
     def next(self):
-      b = (((self.state << ti.u32(s1)) ^ self.state) >> ti.u32(s2))
-      self.state = (((self.state & ti.u32(m)) << ti.u32(s3)) ^ b)
-      return self.state / ti.cast(ti.u32(m), dtype)
+      # xoshiro128** algorithm
+      result = ((self.state * ti.u32(5)) << ti.u32(7)) 
+      
+      # Update state
+      self.state ^= self.state << ti.u32(13)
+      self.state ^= self.state >> ti.u32(17)
+      self.state ^= self.state << ti.u32(5)
+      
+      return result / 4294967295.0  # Normalize to [0,1)
 
 
-
-
+  @ti.func
+  def wang_hash(x: ti.u32, y: ti.u32, seed: ti.u32) -> ti.u32:
+    hash_val = ti.u32(x + y * 2384761) ^ seed
+    hash_val = (hash_val ^ 61) ^ (hash_val >> 16)
+    hash_val = hash_val + (hash_val << 3)
+    hash_val = hash_val ^ (hash_val >> 4)
+    hash_val = hash_val * 0x27d4eb2d
+    hash_val = hash_val ^ (hash_val >> 15)
+    return hash_val
 
   @ti.func
   def bernoulli(u:ti.f32, p:ti.f32, samples:ti.template()):
@@ -59,6 +61,8 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
         prob *= p / (1.0 - p)  * ((samples-k)/(k+1))
             
     return result
+
+
 
 
   @ti.kernel
@@ -78,7 +82,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       image_last_valid: ti.types.ndarray(ti.i32, ndim=2),  # H, W
 
       point_visibility: ti.types.ndarray(vec1, ndim=1),  # (M)
-      seed: ti.int32
+      seed: ti.uint32
   ):
 
     camera_height, camera_width = image_feature.shape
@@ -117,12 +121,12 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       tile_point_count = end_offset - start_offset
 
       num_point_groups = (tile_point_count + ti.static(tile_area - 1)) // tile_area
-      last_point_idx = -1
 
       in_bounds = pixel.x < camera_width and pixel.y < camera_height
       remaining = ti.i32(samples) if in_bounds else 0
 
-      rng = RNG(ti.u32(pixel.x + pixel.y * camera_width))
+      # Better hash function for initialization
+      rng = RNG(wang_hash(ti.u32(pixel.x), ti.u32(pixel.y), ti.u32(seed)))
 
       # Loop through the range in groups of tile_area
       for point_group_id in range(num_point_groups):
@@ -165,7 +169,6 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
           new_hits = min(remaining, bernoulli(rng.next(), alpha, samples))
           if new_hits > 0:
               accum_feature += tile_feature[in_group_idx] * new_hits / samples
-              last_point_idx = group_start_offset + in_group_idx + 1
               remaining -= new_hits
               
 
@@ -182,8 +185,6 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       if in_bounds:
         image_feature[pixel.y, pixel.x] = accum_feature
 
-
-        image_last_valid[pixel.y, pixel.x] = last_point_idx
 
     # end of pixel loop
 
