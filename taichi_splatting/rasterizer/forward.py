@@ -12,31 +12,16 @@ from taichi_splatting.taichi_queue import queued
 def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, samples:int = 1):
 
   lib = get_library(dtype)
-  Gaussian2D, vec1 = lib.Gaussian2D, lib.vec1
+  Gaussian2D = lib.Gaussian2D
 
   feature_vec = ti.types.vector(feature_size, dtype=dtype)
   tile_size = config.tile_size
   tile_area = tile_size * tile_size
 
   gaussian_pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
-
-
-  @ti.func
-  def bernoulli(p):
-    
-    u = ti.random()
-    F = 0.0
-    prob = (1 - p)**samples
-    
-    result = samples
-    for k in ti.static(range(samples)):
-        F += prob
-        if u <= F:
-            result = min(k, result)
-        prob *= p / (1.0 - p)  * ((samples-k)/(k+1))
-            
-    return result
-
+  factors = [(samples-k)/(k+1) for k in range(samples)]
+  
+  hit_vec = ti.types.vector(ti.i32, samples)
 
   @ti.kernel
   def _forward_kernel(
@@ -50,11 +35,8 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       
       # outputs
       image_feature: ti.types.ndarray(feature_vec, ndim=2),  # (H, W, F)
-      # needed for backward
-      image_alpha: ti.types.ndarray(dtype, ndim=2),       # H, W
-      image_last_valid: ti.types.ndarray(ti.i32, ndim=2),  # H, W
+      pixel_hits: ti.types.ndarray(hit_vec, ndim=2),  # H, W, num_samples
 
-      point_visibility: ti.types.ndarray(vec1, ndim=1),  # (M)
   ):
 
     camera_height, camera_width = image_feature.shape
@@ -83,20 +65,16 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       # open the shared memory
       tile_point = ti.simt.block.SharedArray((tile_area, ), dtype=Gaussian2D.vec)
       tile_feature = ti.simt.block.SharedArray((tile_area, ), dtype=feature_vec)
+      tile_id = ti.simt.block.SharedArray((tile_area, ), dtype=ti.i32)
 
-      tile_visibility = (ti.simt.block.SharedArray((tile_area, ), dtype=vec1)
-        if ti.static(config.compute_visibility) else None)
-      
-      tile_point_id = (ti.simt.block.SharedArray((tile_area, ), dtype=ti.i32)
-        if ti.static(config.compute_visibility) else None)
 
       start_offset, end_offset = tile_overlap_ranges[tile_id]
       tile_point_count = end_offset - start_offset
 
       num_point_groups = (tile_point_count + ti.static(tile_area - 1)) // tile_area
-      last_point_idx = -1
-
       in_bounds = pixel.x < camera_width and pixel.y < camera_height
+
+      hits = hit_vec(-1)
       remaining = ti.i32(samples) if in_bounds else 0
 
       # Loop through the range in groups of tile_area
@@ -117,10 +95,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
   
           tile_point[tile_idx] = points[point_idx]
           tile_feature[tile_idx] = point_features[point_idx]
-
-          if ti.static(config.compute_visibility):
-            tile_visibility[tile_idx] = vec1(0.0)
-            tile_point_id[tile_idx] = point_idx
+          tile_id[tile_idx] = point_idx
 
 
         ti.simt.block.sync()
@@ -137,35 +112,22 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
           alpha = point_alpha * gaussian_alpha
           alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
 
-        
-          new_hits = ti.min(bernoulli(alpha), remaining)
-          if new_hits > 0:
-              accum_feature += tile_feature[in_group_idx] * new_hits / samples
-              last_point_idx = group_start_offset + in_group_idx + 1
-              remaining -= new_hits
+          u = ti.random()
+          F = 0.0
+          prob = (1 - alpha)**samples
+          
+          result = samples
+          for k in ti.static(range(samples)):
+              F += prob
+              if u <= F:
+                  result = min(k, result)
+              prob *= alpha / (1.0 - alpha)  * ti.static(factors[k])
+
+              accum_feature += tile_feature[in_group_idx] * ti.static(1 / samples)
+              pixel_hits[remaining] = tile_idx[in_group_idx]
+              remaining -= 1
               
-
-        # Atomic add visibility in global memory
-        if ti.static(config.compute_visibility):
-          ti.simt.block.sync()
-
-          if load_index < end_offset:
-            point_idx = tile_point_id[tile_idx]
-            ti.atomic_add(point_visibility[point_idx], tile_visibility[tile_idx])
-
         # end of point group id loop
-
-      if in_bounds:
-        image_feature[pixel.y, pixel.x] = accum_feature
-
-        # No need to accumulate a normalisation factor as it is exactly 1 - T_i
-        if ti.static(config.use_alpha_blending):
-          image_alpha[pixel.y, pixel.x] = 1. - T_i    
-        else:
-          image_alpha[pixel.y, pixel.x] = dtype(last_point_idx > 0)
-
-        image_last_valid[pixel.y, pixel.x] = last_point_idx
-
     # end of pixel loop
 
   return _forward_kernel

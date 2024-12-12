@@ -26,7 +26,8 @@ def render_function(config:RasterConfig,
                     points_requires_grad:bool,
                     features_requires_grad:bool, 
                     feature_size:int,
-                    dtype=torch.float32):
+                    dtype=torch.float32, 
+                    num_samples=4):
   
     
   forward = forward_kernel(config, feature_size=feature_size, dtype=torch_taichi[dtype])
@@ -50,7 +51,7 @@ def render_function(config:RasterConfig,
       image_feature = torch.empty((*shape, features.shape[1]),
                                   dtype=dtype, device=features.device)
       image_alpha = torch.empty(shape, dtype=dtype, device=features.device)
-      image_last_valid = torch.empty(shape, dtype=torch.int32, device=features.device)
+      image_hits = torch.empty((*shape, num_samples), dtype=torch.int32, device=features.device)
 
       if config.compute_point_heuristics:
         point_heuristics = torch.zeros((gaussians.shape[0], 2), dtype=dtype, device=features.device)
@@ -64,18 +65,18 @@ def render_function(config:RasterConfig,
 
       forward(gaussians, features, 
         tile_overlap_ranges, overlap_to_point,
-        image_feature, image_alpha, image_last_valid, visibility.unsqueeze(1))
+        image_feature, image_alpha, image_hits)
 
       # Non differentiable parameters
       ctx.overlap_to_point = overlap_to_point
       ctx.tile_overlap_ranges = tile_overlap_ranges
-      ctx.image_last_valid = image_last_valid
+      ctx.image_hits = image_hits
       ctx.image_alpha = image_alpha
       ctx.image_size = image_size
       ctx.point_heuristics = point_heuristics
       ctx.visibility = visibility
 
-      ctx.mark_non_differentiable(image_alpha, image_last_valid, overlap_to_point, tile_overlap_ranges, visibility, point_heuristics)
+      ctx.mark_non_differentiable(image_alpha, image_hits, overlap_to_point, tile_overlap_ranges, visibility, point_heuristics)
       ctx.save_for_backward(gaussians, features)
     
             
@@ -91,11 +92,11 @@ def render_function(config:RasterConfig,
         grad_gaussians = torch.zeros_like(gaussians)
         grad_features = torch.zeros_like(features)
   
-        backward(gaussians, features, 
-          ctx.tile_overlap_ranges, ctx.overlap_to_point,
-          ctx.image_alpha, ctx.image_last_valid,
-          grad_image_feature.contiguous(),
-          grad_gaussians, grad_features, ctx.point_heuristics)
+        # backward(gaussians, features, 
+        #   ctx.tile_overlap_ranges, ctx.overlap_to_point,
+        #   ctx.image_alpha, ctx.image_last_valid,
+        #   grad_image_feature.contiguous(),
+        #   grad_gaussians, grad_features, ctx.point_heuristics)
 
 
         return grad_gaussians, grad_features, None, None, None, None
