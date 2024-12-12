@@ -9,7 +9,7 @@ from taichi_splatting.taichi_queue import queued
 
 
 @cache
-def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, samples:int = 1):
+def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, samples:int = 4):
 
   lib = get_library(dtype)
   Gaussian2D, vec1 = lib.Gaussian2D, lib.vec1
@@ -21,10 +21,33 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
   gaussian_pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
 
 
+#   unsigned TausStep(unsigned &z, int S1, int S2, int S3, unsigned M)
+# {
+#   unsigned b = (((z << S1) ^ z) >> S2);
+#   return z = (((z & M) << S3) ^ b);
+# }
+  s1 = 13
+  s2 = 19
+  s3 = 12
+  m = 4294967294
+
+  @ti.dataclass
+  class RNG:
+    state: ti.u32
+
+    @ti.func
+    def next(self):
+      b = (((self.state << ti.u32(s1)) ^ self.state) >> ti.u32(s2))
+      self.state = (((self.state & ti.u32(m)) << ti.u32(s3)) ^ b)
+      return self.state / ti.cast(ti.u32(m), dtype)
+
+
+
+
+
   @ti.func
-  def bernoulli(p):
+  def bernoulli(u:ti.f32, p:ti.f32, samples:ti.template()):
     
-    u = ti.random()
     F = 0.0
     prob = (1 - p)**samples
     
@@ -55,6 +78,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       image_last_valid: ti.types.ndarray(ti.i32, ndim=2),  # H, W
 
       point_visibility: ti.types.ndarray(vec1, ndim=1),  # (M)
+      seed: ti.int32
   ):
 
     camera_height, camera_width = image_feature.shape
@@ -77,7 +101,6 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       pixelf = ti.cast(pixel, dtype) + 0.5
 
       # The initial value of accumulated alpha (initial value of accumulated multiplication)
-      T_i = dtype(1.0)
       accum_feature = feature_vec(0.)
 
       # open the shared memory
@@ -98,6 +121,8 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
 
       in_bounds = pixel.x < camera_width and pixel.y < camera_height
       remaining = ti.i32(samples) if in_bounds else 0
+
+      rng = RNG(ti.u32(pixel.x + pixel.y * camera_width))
 
       # Loop through the range in groups of tile_area
       for point_group_id in range(num_point_groups):
@@ -137,8 +162,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
           alpha = point_alpha * gaussian_alpha
           alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
 
-        
-          new_hits = ti.min(bernoulli(alpha), remaining)
+          new_hits = min(remaining, bernoulli(rng.next(), alpha, samples))
           if new_hits > 0:
               accum_feature += tile_feature[in_group_idx] * new_hits / samples
               last_point_idx = group_start_offset + in_group_idx + 1
@@ -158,11 +182,6 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       if in_bounds:
         image_feature[pixel.y, pixel.x] = accum_feature
 
-        # No need to accumulate a normalisation factor as it is exactly 1 - T_i
-        if ti.static(config.use_alpha_blending):
-          image_alpha[pixel.y, pixel.x] = 1. - T_i    
-        else:
-          image_alpha[pixel.y, pixel.x] = dtype(last_point_idx > 0)
 
         image_last_valid[pixel.y, pixel.x] = last_point_idx
 

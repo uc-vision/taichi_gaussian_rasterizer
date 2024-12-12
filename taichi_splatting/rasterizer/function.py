@@ -1,6 +1,8 @@
 
 from functools import cache
 from typing import Optional
+
+import numpy as np
 from taichi_splatting.mapper.tile_mapper import map_to_tiles
 from taichi_splatting.taichi_queue import queued
 
@@ -28,7 +30,7 @@ def render_function(config:RasterConfig,
                     feature_size:int,
                     dtype=torch.float32):
   
-    
+  
   forward = forward_kernel(config, feature_size=feature_size, dtype=torch_taichi[dtype])
   backward = backward_kernel(config, points_requires_grad,
                              features_requires_grad, 
@@ -62,9 +64,12 @@ def render_function(config:RasterConfig,
       else:
         visibility = torch.empty((0), dtype=dtype, device=features.device)
 
+      seed = np.random.randint(0, 2**32)
+
       forward(gaussians, features, 
         tile_overlap_ranges, overlap_to_point,
-        image_feature, image_alpha, image_last_valid, visibility.unsqueeze(1))
+        image_feature, image_alpha, image_last_valid, 
+        visibility.unsqueeze(1), seed)
 
       # Non differentiable parameters
       ctx.overlap_to_point = overlap_to_point
