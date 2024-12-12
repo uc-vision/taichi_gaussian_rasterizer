@@ -25,13 +25,14 @@ def normalize_raster(raster_image: torch.Tensor, raster_alpha: torch.Tensor, eps
     Returns:
         torch.Tensor: The normalized raster image.
     """
-    normalized_image = raster_image / (raster_alpha + eps)
+    m = nn.Sigmoid()
+    normalized_image = raster_image / (m(raster_alpha).unsqueeze(-1) + eps)
     return normalized_image
 
 def group_norm(num_channels:int):
   return nn.GroupNorm(num_groups=1, num_channels=num_channels, affine=False)
 
-raster_alpha = 10
+
 
 import torch
 import torch.nn as nn
@@ -236,11 +237,11 @@ class GaussianMixer(nn.Module):
     
     self.down_project = nn.Linear(n_base, n_render)
     
-    self.up_project = nn.Linear(n_render, n_base)
+    self.up_project = nn.Linear(n_render+3, n_base)
     self.unet_4 = UNet4()
     self.unet = UNet2D(f=n_render+3, activation=nn.ReLU)
-    self.denoising_layer = DenoisingLayer(n_render)
-    self.final_mlp = mlp(inputs, outputs=outputs, hidden_channels=[n_base] * 2, 
+    self.denoising_layer = DenoisingLayer(n_render+3)
+    self.final_mlp = mlp(n_base, outputs=outputs, hidden_channels=[n_base] * 2, 
                          activation=nn.ReLU, norm=nn.LayerNorm, output_scale=1e-12)
 
 
@@ -254,8 +255,10 @@ class GaussianMixer(nn.Module):
       features=features, 
       image_size=(w, h), 
       config=raster_config)
-    # raster_image = normalize_raster(raster_image=raster.image,raster_alpha=raster_alpha, eps=1e-12)
-    return raster.image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> 1, n_render, H, W
+    # print(raster.image.shape)
+    # print(raster.image_weight.shape)
+    raster_image = normalize_raster(raster_image=raster.image,raster_alpha=raster.image_weight, eps=1e-12)
+    return raster_image.unsqueeze(0).permute(0, 3, 1, 2).to(memory_format=torch.channels_last) # B, H, W, n_render -> 1, n_render, H, W
 
   def sample_positions(self, image:torch.Tensor,  # 1, n_render, H, W
                        positions:torch.Tensor,    # B, 2
@@ -274,22 +277,22 @@ class GaussianMixer(nn.Module):
   def forward(self, x: torch.Tensor, gaussians: Gaussians2D, image_size: Tuple[int, int], raster_config: RasterConfig,ref_image:torch.Tensor) -> torch.Tensor:
     
     
-    # feature = self.init_mlp(x)      # B,inputs -> B, n_base
-    # x = self.down_project(feature)  # B, n_base -> B, n_render
+    feature = self.init_mlp(x)      # B,inputs -> B, n_base
+    x = self.down_project(feature)  # B, n_base -> B, n_render
 
-    # image = self.render(x.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> 1, n_render, H, W
-    # precon_image = ref_image.unsqueeze(0).permute(0,3,1,2)
+    image = self.render(x.to(torch.float32), gaussians, image_size, raster_config) # B, n_render -> 1, n_render, H, W
+    precon_image = ref_image.unsqueeze(0).permute(0,3,1,2)
     
-    # con_image = torch.cat((precon_image,image),dim=1)
+    con_image = torch.cat((precon_image,image),dim=1)
     # image = self.unet_4(con_image)
-    # image = self.unet(con_image)   # B, n_render, H, W -> B, n_render, H, W
+    image = self.unet(con_image)   # B, n_render, H, W -> B, n_render, H, W
     # image = self.denoising_layer(image)
     # sample at gaussian centres from the unet output
-    # x = self.sample_positions(image, gaussians.position) 
-    # x = self.up_project(x)              # B, n_render -> B, n_base
+    x = self.sample_positions(image, gaussians.position) 
+    x = self.up_project(x)              # B, n_render -> B, n_base
 
     # shortcut from output of init_mlp
-    x = self.final_mlp( x) 
+    x = self.final_mlp( x+feature) 
     # print(x.shape)    # B, n_base -> B, outputs
     return x
 

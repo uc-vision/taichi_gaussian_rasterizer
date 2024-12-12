@@ -21,7 +21,7 @@ def test_render_and_sample():
      # Random 16D feature vector
 
     # Create a single Gaussian
-    gaussians = random_2d_gaussians(3000, image_size,
+    gaussians = random_2d_gaussians(1, image_size,
                                     alpha_range=(0.5, 1.0),
                                     scale_factor=1.0).to(
                                         torch.device('cuda:0'))
@@ -37,7 +37,7 @@ def test_render_and_sample():
     print(f"Original features:\n{features}")
     print(f"Sampled features:\n{sampled_features}")
     print(f"Difference:\n{features - sampled_features}")
-    is_close = torch.allclose(features, sampled_features, atol=1e-2)
+    is_close = torch.allclose(features, sampled_features, atol=1e-12)
     assert is_close, f"Sampled features {sampled_features} are not close to input features {features}"
 
     print("Test passed: Rendered and sampled features are close.")

@@ -246,7 +246,7 @@ def main():
             metrics = {}
 
             # Set warmup schedule for first iterations - log interpolate
-            step_size = log_lerp(min(iteration / 400., 1.0), 0.1, 1.0)
+            step_size = log_lerp(min(iteration / 100., 1.0), 0.1, 1.0)
 
             gaussians, train_metrics = trainer.train_epoch(
                 gaussians, epoch_size=epoch_size, step_size=step_size)
