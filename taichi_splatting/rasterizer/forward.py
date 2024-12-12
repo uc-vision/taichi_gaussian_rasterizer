@@ -59,13 +59,13 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
       pixelf = ti.cast(pixel, dtype) + 0.5
 
       # The initial value of accumulated alpha (initial value of accumulated multiplication)
-      T_i = dtype(1.0)
       accum_feature = feature_vec(0.)
 
       # open the shared memory
+      tile_point_id = ti.simt.block.SharedArray((tile_area, ), dtype=ti.i32)
+
       tile_point = ti.simt.block.SharedArray((tile_area, ), dtype=Gaussian2D.vec)
       tile_feature = ti.simt.block.SharedArray((tile_area, ), dtype=feature_vec)
-      tile_id = ti.simt.block.SharedArray((tile_area, ), dtype=ti.i32)
 
 
       start_offset, end_offset = tile_overlap_ranges[tile_id]
@@ -79,8 +79,9 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
 
       # Loop through the range in groups of tile_area
       for point_group_id in range(num_point_groups):
-        if not ti.simt.block.sync_any_nonzero(ti.cast(remaining, ti.i32)):
-          break
+        # if not ti.simt.block.sync_any_nonzero(ti.cast(remaining, ti.i32)):
+        #   break
+        ti.simt.block.sync()
 
         # The offset of the first point in the group
         group_start_offset = start_offset + point_group_id * tile_area
@@ -95,7 +96,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
   
           tile_point[tile_idx] = points[point_idx]
           tile_feature[tile_idx] = point_features[point_idx]
-          tile_id[tile_idx] = point_idx
+          tile_point_id[tile_idx] = point_idx
 
 
         ti.simt.block.sync()
@@ -117,20 +118,26 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
           prob = (1 - alpha)**samples
           
           result = samples
-          for k in ti.static(range(samples)):
-              F += prob
-              if u <= F:
-                  result = min(k, result)
-              prob *= alpha / (1.0 - alpha)  * ti.static(factors[k])
+          if remaining > 0:
+            for k in ti.static(range(samples)):
+                F += prob
+                if u <= F:
+                    result = min(k, result)
+                prob *= alpha / (1.0 - alpha)  * ti.static(factors[k])
 
-              accum_feature += tile_feature[in_group_idx] * ti.static(1 / samples)
-              pixel_hits[remaining] = tile_idx[in_group_idx]
-              remaining -= 1
+                accum_feature += tile_feature[in_group_idx] * ti.static(1 / samples)
+                remaining -= 1
+
+                pixel_hits[remaining] = tile_point_id[in_group_idx]
               
         # end of point group id loop
+
+      if in_bounds:
+        image_hits[pixel.y, pixel.x] = pixel_hits
+        image_feature[pixel.y, pixel.x] = accum_feature
     # end of pixel loop
-    if in_bounds:
-      image_hits[pixel.y, pixel.x] = pixel_hits
+
+
 
   return _forward_kernel
 
