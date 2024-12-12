@@ -153,7 +153,7 @@ def backward_kernel(config: RasterConfig,
               gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = gaussian_pdf(pixelf, mean, axis, sigma)
 
               weight = num_next_hit[i]/config.samples 
-              feature_diff = (tile_feature[in_group_idx] * weight - accum_features[i, :])
+              feature_diff = tile_feature[in_group_idx] - accum_features[i, :]
 
               alpha_grad_from_feature = feature_diff * grad_image_feature[pixel.y, pixel.x]
               alpha_grad = alpha_grad_from_feature.sum()
