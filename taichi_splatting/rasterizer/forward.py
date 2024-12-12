@@ -1,4 +1,3 @@
-
 from functools import cache
 import taichi as ti
 from taichi_splatting.data_types import RasterConfig
@@ -10,7 +9,7 @@ from taichi_splatting.taichi_queue import queued
 
 
 @cache
-def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
+def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, samples:int = 1):
 
   lib = get_library(dtype)
   Gaussian2D, vec1 = lib.Gaussian2D, lib.vec1
@@ -20,7 +19,24 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
   tile_area = tile_size * tile_size
 
   gaussian_pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
-  warp_add_vector = warp_add_vector_32 if dtype == ti.f32 else warp_add_vector_64
+
+
+  @ti.func
+  def bernoulli(p):
+    
+    u = ti.random()
+    F = 0.0
+    prob = (1 - p)**samples
+    
+    result = samples
+    for k in ti.static(range(samples)):
+        F += prob
+        if u <= F:
+            result = min(k, result)
+        prob *= p / (1.0 - p)  * ((samples-k)/(k+1))
+            
+    return result
+
 
   @ti.kernel
   def _forward_kernel(
@@ -81,14 +97,12 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
       last_point_idx = -1
 
       in_bounds = pixel.x < camera_width and pixel.y < camera_height
-      saturated = False
+      remaining = ti.i32(samples) if in_bounds else 0
 
       # Loop through the range in groups of tile_area
       for point_group_id in range(num_point_groups):
-
-        ti.simt.block.sync()
-        # if ti.simt.block.sync_all_nonzero(ti.cast(saturated, ti.i32)):
-        #   break
+        if not ti.simt.block.sync_any_nonzero(ti.cast(remaining, ti.i32)):
+          break
 
         # The offset of the first point in the group
         group_start_offset = start_offset + point_group_id * tile_area
@@ -105,7 +119,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
           tile_feature[tile_idx] = point_features[point_idx]
 
           if ti.static(config.compute_visibility):
-            tile_visibility[tile_idx] = 0.0
+            tile_visibility[tile_idx] = vec1(0.0)
             tile_point_id[tile_idx] = point_idx
 
 
@@ -121,32 +135,15 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
           gaussian_alpha = gaussian_pdf(pixelf, mean, axis, sigma)
 
           alpha = point_alpha * gaussian_alpha
+          alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
 
-          weight = vec1(0.0)
-
-          # from paper: we skip any blending updates with 𝛼 < 𝜖 (configurable as alpha_threshold)
-          if alpha >= ti.static(config.alpha_threshold) and in_bounds and not saturated:
-
-            alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
-            weight[0] = alpha * T_i
-
-            if ti.static(config.use_alpha_blending):
-              accum_feature += tile_feature[in_group_idx] * alpha * T_i
-            else:
-              # no blending - use this to compute quantile (e.g. median) along with config.saturate_threshold
-              if T_i >= ti.static(1.0 - config.saturate_threshold):
-                accum_feature = tile_feature[in_group_idx]
-            
-            T_i = T_i * (1 - alpha)
-            last_point_idx = group_start_offset + in_group_idx + 1
-
-            saturated = T_i < ti.static(1.0 - config.saturate_threshold)
-
-          # Accumulate visibility in block shared memory tile
-          if ti.static(config.compute_visibility):
-            if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(weight[0] > 0)):
-              warp_add_vector(tile_visibility[in_group_idx], weight)
-          # end of point group loop
+        
+          new_hits = ti.min(bernoulli(alpha), remaining)
+          if new_hits > 0:
+              accum_feature += tile_feature[in_group_idx] * new_hits / samples
+              last_point_idx = group_start_offset + in_group_idx + 1
+              remaining -= new_hits
+              
 
         # Atomic add visibility in global memory
         if ti.static(config.compute_visibility):
