@@ -22,18 +22,19 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
 
 
   @ti.func
-  def bernoulli(p):
+  def bernoulli(p, n):
     
     u = ti.random()
     F = 0.0
-    prob = (1 - p)**samples
+    prob = (1 - p)**n
     
-    result = samples
-    for k in ti.static(range(samples)):
+    result = n
+    for k in range(n):
         F += prob
         if u <= F:
-            result = min(k, result)
-        prob *= p / (1.0 - p)  * ((samples-k)/(k+1))
+            result = k
+            break
+        prob *= p / (1.0 - p)  * ((n-k)/(k+1))
             
     return result
 
@@ -138,12 +139,15 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
           alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
 
         
-          new_hits = ti.min(bernoulli(alpha), remaining)
+          new_hits = bernoulli(alpha, remaining)
           if new_hits > 0:
               accum_feature += tile_feature[in_group_idx] * new_hits / samples
-              last_point_idx = group_start_offset + in_group_idx + 1
               remaining -= new_hits
+
+              if ti.static(config.compute_visibility):
+                ti.atomic_add(tile_visibility[tile_idx], vec1(new_hits / samples))
               
+
 
         # Atomic add visibility in global memory
         if ti.static(config.compute_visibility):
@@ -157,14 +161,6 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, sample
 
       if in_bounds:
         image_feature[pixel.y, pixel.x] = accum_feature
-
-        # No need to accumulate a normalisation factor as it is exactly 1 - T_i
-        if ti.static(config.use_alpha_blending):
-          image_alpha[pixel.y, pixel.x] = 1. - T_i    
-        else:
-          image_alpha[pixel.y, pixel.x] = dtype(last_point_idx > 0)
-
-        image_last_valid[pixel.y, pixel.x] = last_point_idx
 
     # end of pixel loop
 
