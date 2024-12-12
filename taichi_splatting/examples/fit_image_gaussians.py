@@ -137,9 +137,6 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
 
     # point_heuristics *= raster.visibility.clamp(1e-8).unsqueeze(1).sqrt()
     visibility += raster.visibility
-    max_visibility = scale.prod(1) * (2 * math.pi)
-
-    # raster.point_heuristics[:, 0] = visibility
     point_heuristics +=  raster.point_heuristics
 
   return raster.image, point_heuristics 
