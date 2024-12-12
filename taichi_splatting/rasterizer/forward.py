@@ -3,190 +3,128 @@ import taichi as ti
 from taichi_splatting.data_types import RasterConfig
 from taichi_splatting.rasterizer import tiling
 from taichi_splatting.taichi_lib import get_library
-from taichi_splatting.taichi_lib.concurrent import warp_add_vector_32, warp_add_vector_64
-from taichi_splatting.taichi_queue import queued
 
 
 
 @cache
-def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32, samples:int = 4):
+def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
+    lib = get_library(dtype)
+    Gaussian2D = lib.Gaussian2D
+    bernoulli = lib.bernoulli
+    xoshiro128 = lib.xoshiro128
+    wang_hash = lib.wang_hash
 
-  lib = get_library(dtype)
-  Gaussian2D, vec1 = lib.Gaussian2D, lib.vec1
+    feature_vec = ti.types.vector(feature_size, dtype=dtype)
+    tile_size = config.tile_size
+    tile_area = tile_size * tile_size
 
-  feature_vec = ti.types.vector(feature_size, dtype=dtype)
-  tile_size = config.tile_size
-  tile_area = tile_size * tile_size
+    # Match backward.py pattern for pixel tiling
+    thread_pixels = config.pixel_stride[0] * config.pixel_stride[1]
+    block_area = tile_area // thread_pixels
 
-  gaussian_pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
+    # Create batch types for accumulation
+    thread_features = ti.types.matrix(thread_pixels, feature_size, dtype=dtype)
+    thread_u32 = ti.types.vector(thread_pixels, dtype=ti.u32)
+    thread_i32 = ti.types.vector(thread_pixels, dtype=ti.i32)
 
+    # Create pixel tile mapping
+    pixel_tile = tuple([ (i, 
+                (i % config.pixel_stride[0],
+                i // config.pixel_stride[0]))
+                  for i in range(thread_pixels) ])
 
+    gaussian_pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
 
-  @ti.func
-  def xoshiro128(state: ti.u32):
-    # xoshiro128** algorithm
-    result = ((state * ti.u32(5)) << ti.u32(7)) 
-    
-    # Update state
-    state ^= state << ti.u32(13)
-    state ^= state >> ti.u32(17)
-    state ^= state << ti.u32(5)
-    
-    f = result / 4294967295.0  # Normalize to [0,1)
-    return f, state
+    @ti.kernel
+    def _forward_kernel(
+        points: ti.types.ndarray(Gaussian2D.vec, ndim=1),
+        point_features: ti.types.ndarray(feature_vec, ndim=1),
+        tile_overlap_ranges: ti.types.ndarray(ti.math.ivec2, ndim=1),
+        overlap_to_point: ti.types.ndarray(ti.i32, ndim=1),
+        image_feature: ti.types.ndarray(feature_vec, ndim=2),
+        image_hits: ti.types.ndarray(ti.u32, ndim=3),
 
-  @ti.func
-  def wang_hash(x: ti.u32, y: ti.u32, seed: ti.u32) -> ti.u32:
-    hash_val = ti.u32(x + y * 2384761) ^ seed
-    hash_val = (hash_val ^ 61) ^ (hash_val >> 16)
-    hash_val = hash_val + (hash_val << 3)
-    hash_val = hash_val ^ (hash_val >> 4)
-    hash_val = hash_val * 0x27d4eb2d
-    hash_val = hash_val ^ (hash_val >> 15)
-    return hash_val
+        seed: ti.uint32
+    ):
+        camera_height, camera_width = image_feature.shape
+        tiles_wide = (camera_width + tile_size - 1) // tile_size 
+        tiles_high = (camera_height + tile_size - 1) // tile_size
 
-  @ti.func
-  def bernoulli(u:ti.f32, p:ti.f32, samples:ti.template()):
-    
-    F = 0.0
-    prob = (1 - p)**samples
-    
-    result = samples
-    for k in ti.static(range(samples)):
-        F += prob
-        if u <= F:
-            result = min(k, result)
-        prob *= p / (1.0 - p)  * ((samples-k)/(k+1))
-            
-    return result
+        ti.loop_config(block_dim=(block_area))
+        for tile_id, tile_idx in ti.ndrange(tiles_wide * tiles_high, block_area):
+            pixel_base = tiling.tile_transform(tile_id, tile_idx, 
+                            tile_size, config.pixel_stride, tiles_wide)
 
+            # Initialize accumulators for all pixels in tile
+            accum_features = thread_features(0.0)
+            remaining_samples = thread_i32(config.samples)
+            rng_states = thread_u32(0)
 
+            # Initialize RNG states and check bounds for all pixels in tile
+            for i, offset in ti.static(pixel_tile):
+                pixel = pixel_base + ti.Vector(offset)
+                in_bounds = pixel.y < camera_height and pixel.x < camera_width
+                rng_states[i] = wang_hash(ti.u32(pixel.x), ti.u32(pixel.y), seed)
+                remaining_samples[i] = config.samples * ti.i32(in_bounds)
 
-  @ti.kernel
-  def _forward_kernel(
-      points: ti.types.ndarray(Gaussian2D.vec, ndim=1),  # (M, 6)
-      point_features: ti.types.ndarray(feature_vec, ndim=1),  # (M, F)
-      
-      # (TH, TW, 2) the start/end (0..K] index of ranges in the overlap_to_point array
-      tile_overlap_ranges: ti.types.ndarray(ti.math.ivec2, ndim=1),
-      # (K) ranges of points mapping to indexes into points list
-      overlap_to_point: ti.types.ndarray(ti.i32, ndim=1),
-      
-      # outputs
-      image_feature: ti.types.ndarray(feature_vec, ndim=2),  # (H, W, F)
-      # needed for backward
-      image_alpha: ti.types.ndarray(dtype, ndim=2),       # H, W
-      image_last_valid: ti.types.ndarray(ti.i32, ndim=2),  # H, W
+            start_offset, end_offset = tile_overlap_ranges[tile_id]
+            tile_point_count = end_offset - start_offset
+            num_point_groups = (tile_point_count + ti.static(block_area - 1)) // block_area
 
-      point_visibility: ti.types.ndarray(vec1, ndim=1),  # (M)
-      seed: ti.uint32
-  ):
+            # open shared memory
+            tile_point = ti.simt.block.SharedArray((block_area, ), dtype=Gaussian2D.vec)
+            tile_feature = ti.simt.block.SharedArray((block_area, ), dtype=feature_vec)
 
-    camera_height, camera_width = image_feature.shape
+            for point_group_id in range(num_point_groups):
+                remaining = remaining_samples.sum()
+                if not ti.simt.block.sync_any_nonzero(remaining):
+                    break
 
-    # round up
-    tiles_wide = (camera_width + tile_size - 1) // tile_size 
-    tiles_high = (camera_height + tile_size - 1) // tile_size
+                # Load points into shared memory
+                group_start_offset = start_offset + point_group_id * block_area
+                load_index = group_start_offset + tile_idx
 
-    # put each tile_size * tile_size tile in the same CUDA thread group (block)
-    # tile_id is the index of the tile in the (tiles_wide x tiles_high) grid
-    # tile_idx is the index of the pixel in the tile
-    # pixels are blocked first by tile_id, then by tile_idx into (8x4) warps
-    
-    ti.loop_config(block_dim=(tile_area))
+                if load_index < end_offset:
+                    point_idx = overlap_to_point[load_index]
+                    tile_point[tile_idx] = points[point_idx]
+                    tile_feature[tile_idx] = point_features[point_idx]
 
-    
-    for tile_id, tile_idx in ti.ndrange(tiles_wide * tiles_high, tile_area):
+                ti.simt.block.sync()
 
-      pixel = tiling.tile_transform(tile_id, tile_idx, tile_size, (1, 1), tiles_wide)
-      pixelf = ti.cast(pixel, dtype) + 0.5
+                max_point_group_offset = ti.min(
+                    block_area, tile_point_count - point_group_id * block_area)
 
-      # The initial value of accumulated alpha (initial value of accumulated multiplication)
-      accum_feature = feature_vec(0.)
+                # Process all points in group for each pixel in tile
+                for in_group_idx in range(max_point_group_offset):
+                    mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
 
-      # open the shared memory
-      tile_point = ti.simt.block.SharedArray((tile_area, ), dtype=Gaussian2D.vec)
-      tile_feature = ti.simt.block.SharedArray((tile_area, ), dtype=feature_vec)
+                    for i, offset in ti.static(pixel_tile):
+                        if remaining_samples[i] > 0:
+                            pixel = pixel_base + ti.Vector(offset)
+                            pixelf = ti.cast(pixel, dtype) + 0.5
 
-      tile_visibility = (ti.simt.block.SharedArray((tile_area, ), dtype=vec1)
-        if ti.static(config.compute_visibility) else None)
-      
-      tile_point_id = (ti.simt.block.SharedArray((tile_area, ), dtype=ti.i32)
-        if ti.static(config.compute_visibility) else None)
+                            gaussian_alpha = gaussian_pdf(pixelf, mean, axis, sigma)
+                            alpha = point_alpha * gaussian_alpha
+                            alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
 
-      start_offset, end_offset = tile_overlap_ranges[tile_id]
-      tile_point_count = end_offset - start_offset
+                            u, rng_states[i] = xoshiro128(rng_states[i])
+                            new_hits = min(remaining_samples[i], 
+                                         bernoulli(u, alpha, config.samples))
+                            
+                            if new_hits > 0:
+                                accum_features[i, :] += (
+                                    tile_feature[in_group_idx] * new_hits / config.samples
+                                )
+                                # image_hits[pixel.y, pixel.x, :] = new_hits
+                                remaining_samples[i] -= new_hits
 
-      num_point_groups = (tile_point_count + ti.static(tile_area - 1)) // tile_area
+            # Write final results
+            for i, offset in ti.static(pixel_tile):
+                pixel = pixel_base + ti.Vector(offset)
+                if pixel.y < camera_height and pixel.x < camera_width:
+                    image_feature[pixel.y, pixel.x] = accum_features[i, :]
 
-      in_bounds = pixel.x < camera_width and pixel.y < camera_height
-      remaining = ti.i32(samples) if in_bounds else 0
-
-      # Better hash function for initialization
-      rng_state = wang_hash(ti.u32(pixel.x), ti.u32(pixel.y), ti.u32(seed))
-
-      # Loop through the range in groups of tile_area
-      for point_group_id in range(num_point_groups):
-        if not ti.simt.block.sync_any_nonzero(ti.cast(remaining, ti.i32)):
-          break
-
-        # The offset of the first point in the group
-        group_start_offset = start_offset + point_group_id * tile_area
-
-        # each thread in a block loads one point into shared memory
-        # then all threads in the block process those points sequentially
-        load_index = group_start_offset + tile_idx
-
-
-        if load_index < end_offset:
-          point_idx = overlap_to_point[load_index]
-  
-          tile_point[tile_idx] = points[point_idx]
-          tile_feature[tile_idx] = point_features[point_idx]
-
-          if ti.static(config.compute_visibility):
-            tile_visibility[tile_idx] = vec1(0.0)
-            tile_point_id[tile_idx] = point_idx
-
-
-        ti.simt.block.sync()
-
-        max_point_group_offset: ti.i32 = ti.min(
-            tile_area, tile_point_count - point_group_id * tile_area)
-
-        # in parallel across a block, render all points in the group
-        
-        for in_group_idx in range(max_point_group_offset):
-          mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
-          gaussian_alpha = gaussian_pdf(pixelf, mean, axis, sigma)
-
-          alpha = point_alpha * gaussian_alpha
-          alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
-
-          u, rng_state = xoshiro128(rng_state)
-          new_hits = min(remaining, bernoulli(u, alpha, samples))
-          if new_hits > 0:
-              accum_feature += tile_feature[in_group_idx] * new_hits / samples
-              remaining -= new_hits
-              
-
-        # Atomic add visibility in global memory
-        if ti.static(config.compute_visibility):
-          ti.simt.block.sync()
-
-          if load_index < end_offset:
-            point_idx = tile_point_id[tile_idx]
-            ti.atomic_add(point_visibility[point_idx], tile_visibility[tile_idx])
-
-        # end of point group id loop
-
-      if in_bounds:
-        image_feature[pixel.y, pixel.x] = accum_feature
-
-
-    # end of pixel loop
-
-  return _forward_kernel
+    return _forward_kernel
 
 
 

@@ -39,6 +39,8 @@ class RasterConfig:
   compute_point_heuristics: bool = False # compute point heuristics (split score, prune score, visibility) in backward pass
   compute_visibility: bool = False # compute visibility (pixels) for each gaussian
 
+  samples: int = 4
+
 
 
 def check_packed3d(packed_gaussians: torch.Tensor):

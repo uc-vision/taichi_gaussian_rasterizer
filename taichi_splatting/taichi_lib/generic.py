@@ -487,4 +487,46 @@ def make_library(dtype=ti.f32):
   def lerp(t: dtype, a: ti.template(), b: ti.template()):
     return a * t + b * (1.0 - t)
 
+
+
+  @ti.func
+  def xoshiro128(state: ti.u32):
+    # xoshiro128** algorithm
+    result = ((state * ti.u32(5)) << ti.u32(7)) 
+    
+    # Update state
+    state ^= state << ti.u32(13)
+    state ^= state >> ti.u32(17)
+    state ^= state << ti.u32(5)
+    
+    f = result / 4294967295.0  # Normalize to [0,1)
+    return f, state
+
+  @ti.func
+  def wang_hash(x: ti.u32, y: ti.u32, seed: ti.u32) -> ti.u32:
+    hash_val = ti.u32(x + y * 2384761) ^ seed
+    hash_val = (hash_val ^ 61) ^ (hash_val >> 16)
+    hash_val = hash_val + (hash_val << 3)
+    hash_val = hash_val ^ (hash_val >> 4)
+    hash_val = hash_val * 0x27d4eb2d
+    hash_val = hash_val ^ (hash_val >> 15)
+    return hash_val
+
+  @ti.func
+  def bernoulli(u:ti.f32, p:ti.f32, samples:ti.template()):
+    
+    F = 0.0
+    prob = (1 - p)**samples
+    
+    result = samples
+    for k in ti.static(range(samples)):
+        F += prob
+        if u <= F:
+            result = min(k, result)
+        prob *= p / (1.0 - p)  * ((samples-k)/(k+1))
+            
+    return result
+
+
   return SimpleNamespace(**locals())
+  
