@@ -221,17 +221,17 @@ def main():
                       scale_reg=cmd_args.scale_reg)
     epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
 
-    pbar = tqdm(total=cmd_args.iters)
+    
     iteration = 0
 
-    for img_path in tqdm(image_files, desc="Training on dataset"):
+    for img_path in image_files:
         ref_image = cv2.imread(img_path)
         ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32,
                                                    device=device) / 255
         assert ref_image is not None, f'Could not read {img_path}'
 
         h, w = ref_image.shape[:2]
-        print(f'Training on image: {img_path}, size: {w}x{h}')
+        # print(f'Training on image: {img_path}, size: {w}x{h}')
 
         torch.manual_seed(cmd_args.seed)
         torch.cuda.random.manual_seed(cmd_args.seed)
@@ -240,7 +240,8 @@ def main():
                                         alpha_range=(0.5, 1.0),
                                         scale_factor=1.0).to(
                                             torch.device('cuda:0'))
-
+        pbar = tqdm(total=cmd_args.iters)
+        
         for epoch_size in epochs:
 
             metrics = {}

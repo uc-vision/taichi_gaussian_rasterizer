@@ -292,7 +292,7 @@ class GaussianMixer(nn.Module):
     x = self.up_project(x)              # B, n_render -> B, n_base
 
     # shortcut from output of init_mlp
-    x = self.final_mlp( x+feature) 
+    x = self.final_mlp( x+ feature) 
     # print(x.shape)    # B, n_base -> B, outputs
     return x
 
