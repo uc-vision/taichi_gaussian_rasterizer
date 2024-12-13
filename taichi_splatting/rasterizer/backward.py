@@ -156,19 +156,22 @@ def backward_kernel(config: RasterConfig,
 
             # Compute feature difference and gradient
             feature_diff = tile_feature[in_group_idx] * weight - remaining_features / remaining_weight
-            grad_feature = weight * grad_pixel_feature
 
             alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()
 
             # Compute gradients
-            pos_grad = alpha_grad * dp_dmean
-            grad_point = Gaussian2D.to_vec(pos_grad, 
-                      alpha_grad * dp_daxis, 
-                      alpha_grad * dp_dsigma, 
-                      gaussian_alpha * alpha_grad)
+            if ti.static(points_requires_grad):
+              grad_point = Gaussian2D.to_vec( alpha_grad * dp_dmean, 
+                        alpha_grad * dp_daxis, 
+                        alpha_grad * dp_dsigma, 
+                        gaussian_alpha * alpha_grad)
             
-            gaussian_point_heuristics = vec2(weight, lib.l1_norm(pos_grad))
+            if ti.static(config.compute_point_heuristics):
+              gaussian_point_heuristics = vec2(weight, lib.l1_norm( alpha_grad * dp_dmean))
+
+            if ti.static(features_requires_grad):
+              grad_feature = weight * grad_pixel_feature
 
             # Step to next hit
             hit_idx += 1
