@@ -101,7 +101,7 @@ class Trainer:
     def get_gradients(self, gaussians):
         gaussians = gaussians.clone()
         gaussians.requires_grad_(True)
-        self.render_step(gaussians)
+        metrics = self.render_step(gaussians)
         grad = gaussians.grad
 
         mean_abs_grad = grad.abs().mean(dim=0)
@@ -111,30 +111,38 @@ class Trainer:
             self.running_scales = lerp(0.999, self.running_scales,
                                        mean_abs_grad)
 
-        return grad * 1e7
+        return grad * 1e7,metrics
 
-    def test(self, gaussians):
+    def test(self, gaussians, step_size=0.01, epoch_size=100):
         """Run inference using the trained model."""
-        with torch.no_grad():
-
-            grad = self.get_gradients(gaussians)
-            check_finite(grad, "grad")
-
-            inputs = flatten_tensorclass(grad)
-
+        metrics = []
+        for i in range(epoch_size):
             with torch.enable_grad():
-                step = self.optimizer_mlp(inputs)
-                step = split_tensorclass(gaussians, step)
-        raster = self.render(gaussians - step)
-        psnr_value = psnr(self.ref_image, raster.image).item()
-        print(f"Test PSNR: {psnr_value:.4f}")
-        return raster.image
+                    # Compute gradients
+                grad,metric = self.get_gradients(gaussians)
+                check_finite(grad, "grad")
+
+                # Flatten gradients and predict updates using the MLP
+                inputs = flatten_tensorclass(grad)
+                # input2 = flatten_tensorclass(gaussians)
+                # inputs = torch.cat([inputs, input2], dim=1)
+
+                with torch.no_grad():
+                    step = self.optimizer_mlp(inputs, gaussians,
+                                                    self.ref_image.shape[:2],
+                                                    self.config,
+                                                    self.ref_image)
+                    step = split_tensorclass(gaussians, step)
+                    metrics.append(metric)
+                # Update Gaussians with the step
+                gaussians = gaussians - step * step_size
+        return gaussians, mean_dicts(metrics)
 
     def train_epoch(self, gaussians, step_size=0.01, epoch_size=100):
         metrics = []
         for i in range(epoch_size):
 
-            grad = self.get_gradients(gaussians)
+            grad,_ = self.get_gradients(gaussians)
             check_finite(grad, "grad")
             self.mlp_opt.zero_grad()
 
@@ -224,7 +232,8 @@ def main():
     
     iteration = 0
 
-    for img_path in image_files:
+    for num, img_path in enumerate(image_files):
+        
         ref_image = cv2.imread(img_path)
         ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32,
                                                    device=device) / 255
@@ -240,7 +249,7 @@ def main():
                                         alpha_range=(0.5, 1.0),
                                         scale_factor=1.0).to(
                                             torch.device('cuda:0'))
-        pbar = tqdm(total=cmd_args.iters)
+        pbar = tqdm(total=cmd_args.iters,desc="Initializing")
         
         for epoch_size in epochs:
 
@@ -249,8 +258,15 @@ def main():
             # Set warmup schedule for first iterations - log interpolate
             step_size = log_lerp(min(iteration / 100., 1.0), 0.1, 1.0)
 
-            gaussians, train_metrics = trainer.train_epoch(
-                gaussians, epoch_size=epoch_size, step_size=step_size)
+            if num % 10 == 0 :
+                pbar.set_description(f"Testing Progress")
+                gaussians, train_metrics = trainer.test(
+                    gaussians, epoch_size=epoch_size, step_size=step_size)
+
+            else:
+                pbar.set_description(f"Training Progress")
+                gaussians, train_metrics = trainer.train_epoch(
+                    gaussians, epoch_size=epoch_size, step_size=step_size)
 
             image = trainer.render(gaussians).image
             if cmd_args.show:
