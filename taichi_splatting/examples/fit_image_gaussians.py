@@ -95,7 +95,6 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
   h, w = ref_image.shape[:2]
 
   point_heuristics = torch.zeros((params.batch_size[0], 2), device=params.position.device)
-  visibility = torch.zeros((params.batch_size[0]), device=params.position.device)
 
   for i in range(epoch_size):
     opt.zero_grad()
@@ -119,12 +118,14 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
       loss.backward()
 
 
-    check_finite(gaussians, 'gaussians', warn=True)
-    visible = (raster.visibility > 1e-8).nonzero().squeeze(1)
+    check_finite(gaussians, 'gaussians')
+
+    visibility = raster.point_heuristics[:, 0]
+    visible = (visibility > 1e-8).nonzero().squeeze(1)
 
     if isinstance(opt, VisibilityOptimizer):
       opt.step(indexes = visible, 
-              visibility=raster.visibility[visible], 
+              visibility=visibility[visible], 
               basis=point_basis(gaussians[visible]))
     else:
       opt.step(indexes = visible, 
@@ -135,10 +136,7 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
       log_scaling = torch.clamp(params.log_scaling.detach(), min=-5, max=5)
     )
 
-    # point_heuristics *= raster.visibility.clamp(1e-8).unsqueeze(1).sqrt()
-    visibility += raster.visibility
     point_heuristics +=  raster.point_heuristics
-
   return raster.image, point_heuristics 
 
 
@@ -256,11 +254,11 @@ def main():
   
   parameter_groups = dict(
     position=dict(lr=lr_range[0], type='local_vector'),
-    log_scaling=dict(lr=0.05),
+    log_scaling=dict(lr=0.01),
 
     rotation=dict(lr=1.0),
-    alpha_logit=dict(lr=0.1),
-    feature=dict(lr=0.025, type='vector')
+    alpha_logit=dict(lr=0.01),
+    feature=dict(lr=0.01, type='vector')
   )
   
   # params = ParameterClass(gaussians.to_tensordict(), 

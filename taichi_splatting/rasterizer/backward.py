@@ -12,7 +12,8 @@ def backward_kernel(config: RasterConfig,
                    points_requires_grad: bool,
                    features_requires_grad: bool, 
                    feature_size: int,
-                   dtype=ti.f32):
+                   dtype=ti.f32,
+                   eps=1e-12):
   
   # Load library functions
   lib = get_library(dtype)
@@ -66,6 +67,7 @@ def backward_kernel(config: RasterConfig,
     for tile_id, tile_idx in ti.ndrange(tiles_wide * tiles_high, tile_area):
       pixel = tiling.tile_transform(tile_id, tile_idx, 
                                    tile_size, (1, 1), tiles_wide)
+      pixelf = ti.cast(pixel, dtype) + 0.5
 
       grad_pixel_feature = grad_image_feature[pixel.y, pixel.x]
 
@@ -142,30 +144,26 @@ def backward_kernel(config: RasterConfig,
 
           has_grad = next_hit == tile_point_id[in_group_idx]
           if has_grad:
-            pixelf = ti.cast(pixel, dtype) + 0.5
 
             # Compute gaussian gradients
             mean, axis, sigma, _ = Gaussian2D.unpack(tile_point[in_group_idx])
 
-            gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = gaussian_pdf(pixelf, mean, axis, sigma)
+            _, dp_dmean, dp_daxis, dp_dsigma = gaussian_pdf(pixelf, mean, axis, sigma)
             weight = num_next_hit / config.samples
 
             # Accumulate total hits and subtract accumulated features
             remaining_features -= tile_feature[in_group_idx] * weight
             remaining_weight -= weight
 
-            # Compute feature difference and gradient
-            feature_diff = tile_feature[in_group_idx] * weight - remaining_features / remaining_weight
+            # Compute feature difference between point and remaining features (from points behind this one)
+            feature_diff = tile_feature[in_group_idx] * weight - remaining_features / (remaining_weight + eps)
 
             alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()
 
             # Compute gradients
             if ti.static(points_requires_grad):
-              grad_point = Gaussian2D.to_vec( alpha_grad * dp_dmean, 
-                        alpha_grad * dp_daxis, 
-                        alpha_grad * dp_dsigma, 
-                        gaussian_alpha * alpha_grad)
+              grad_point = alpha_grad * Gaussian2D.to_vec(dp_dmean, dp_daxis, dp_dsigma, 1.0)
             
             if ti.static(config.compute_point_heuristics):
               gaussian_point_heuristics = vec2(weight, lib.l1_norm( alpha_grad * dp_dmean))
