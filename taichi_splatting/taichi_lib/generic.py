@@ -512,6 +512,7 @@ def make_library(dtype=ti.f32):
     hash_val = hash_val ^ (hash_val >> 15)
     return hash_val
 
+  
   @ti.func
   def bernoulli(u:ti.f32, p:ti.f32, samples:ti.template()):
     
@@ -527,6 +528,23 @@ def make_library(dtype=ti.f32):
             
     return result
 
+
+  @ti.func
+  def bernoulli_dynamic(u:ti.f32, p:ti.f32, samples:ti.i32):
+    
+    F = 0.0
+    prob = (1 - p)**samples
+    
+    result = samples
+    for k in range(samples):
+        F += prob
+        if u <= F:
+           result = k
+           break
+            # result = min(k, result)
+        prob *= p / (1.0 - p)  * ((samples-k)/(k+1))
+            
+    return result
 
   return SimpleNamespace(**locals())
   
