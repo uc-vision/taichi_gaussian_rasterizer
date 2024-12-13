@@ -27,6 +27,9 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
     thread_u32 = ti.types.vector(thread_pixels, dtype=ti.u32)
     thread_i32 = ti.types.vector(thread_pixels, dtype=ti.i32)
 
+    thread_hits = ti.types.matrix(thread_pixels, config.samples, dtype=ti.u32)
+    hit_vector = ti.types.vector(config.samples, dtype=ti.u32)
+
     # Create pixel tile mapping
     pixel_tile = tuple([ (i, 
                 (i % config.pixel_stride[0],
@@ -42,7 +45,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
         tile_overlap_ranges: ti.types.ndarray(ti.math.ivec2, ndim=1),
         overlap_to_point: ti.types.ndarray(ti.i32, ndim=1),
         image_feature: ti.types.ndarray(feature_vec, ndim=2),
-        image_hits: ti.types.ndarray(ti.u32, ndim=3),
+        image_hits: ti.types.ndarray(hit_vector, ndim=2),
 
         seed: ti.uint32
     ):
@@ -60,6 +63,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
             remaining_samples = thread_i32(config.samples)
             rng_states = thread_u32(0)
             hit_index = thread_i32(0)
+            hits = thread_hits(0)
 
             # Initialize RNG states and check bounds for all pixels in tile
             for i, offset in ti.static(pixel_tile):
@@ -118,8 +122,9 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                                 )
                                 index =  group_start_offset + in_group_idx + 1
                                 encoded = ti.u32(index) << ti.u32(6) | ti.u32(new_hits)
-                                image_hits[pixel.y, pixel.x, hit_index[i]] = encoded
+                                hits[i, hit_index[i]] = encoded
                                 hit_index[i] += 1
+
                                 remaining_samples[i] -= new_hits
 
 
@@ -128,7 +133,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                 pixel = pixel_base + ti.Vector(offset)
                 if pixel.y < camera_height and pixel.x < camera_width:
                     image_feature[pixel.y, pixel.x] = accum_features[i, :]
-
+                    image_hits[pixel.y, pixel.x] = hits[i, :]
     return _forward_kernel
 
 

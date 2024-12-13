@@ -55,6 +55,7 @@ def backward_kernel(config: RasterConfig,
 
       # input gradients
       grad_image_feature: ti.types.ndarray(feature_vec, ndim=2),  # (H, W, F)
+      image_feature: ti.types.ndarray(feature_vec, ndim=2),  # (H, W, F)
 
       # output gradients
       grad_points: ti.types.ndarray(Gaussian2D.vec, ndim=1),  # (M, C)
@@ -72,15 +73,19 @@ def backward_kernel(config: RasterConfig,
                                        tile_size, config.pixel_stride, tiles_wide)
 
       # Initialize accumulators for all pixels in tile
-      accum_features = thread_features(0.0)
+      remaining_features = thread_features(0.0)
       next_hit = thread_i32(0.)
       num_next_hit = thread_i32(0)
 
       hit_idx = thread_i32(0)
+      total_hits = thread_i32(0)
 
       # Initialize RNG states and check bounds for all pixels in tile
       for i, offset in ti.static(pixel_tile):
         pixel = pixel_base + ti.Vector(offset)
+
+        # this is the total features - the features that have been accumulated
+        remaining_features[i, :] = image_feature[pixel.y, pixel.x]
         in_bounds = pixel.y < camera_height and pixel.x < camera_width
         if in_bounds:
           next_hit[i], num_next_hit[i] = decode_hit(image_hits[pixel.y, pixel.x, 0])
@@ -151,16 +156,22 @@ def backward_kernel(config: RasterConfig,
               pixelf = ti.cast(pixel, dtype) + 0.5
 
               gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = gaussian_pdf(pixelf, mean, axis, sigma)
+              weight = num_next_hit[i] / config.samples 
 
-              weight = num_next_hit[i]/config.samples 
-              feature_diff = tile_feature[in_group_idx] - accum_features[i, :]
+              # accumulate total hits and subtract the features that have been accumulated
+              remaining_features[i, :] -= tile_feature[in_group_idx] * num_next_hit[i] 
+              total_hits[i] += num_next_hit[i]
+
+              # compute difference between (weighted) features for this hit 
+              # and features for samples accumulated behind it
+              feature_diff = tile_feature[in_group_idx] * num_next_hit[i] - remaining_features[i, :] / total_hits[i]
 
               alpha_grad_from_feature = feature_diff * grad_image_feature[pixel.y, pixel.x]
               alpha_grad = alpha_grad_from_feature.sum()
 
-              pos_grad = alpha_grad * point_alpha * dp_dmean
-              axis_grad = alpha_grad * point_alpha * dp_daxis
-              sigma_grad = alpha_grad * point_alpha * dp_dsigma
+              pos_grad = alpha_grad  * dp_dmean
+              axis_grad = alpha_grad  * dp_daxis
+              sigma_grad = alpha_grad  * dp_dsigma
               alpha_grad = gaussian_alpha * alpha_grad
 
               grad_point += Gaussian2D.to_vec(
@@ -176,9 +187,7 @@ def backward_kernel(config: RasterConfig,
                   lib.l1_norm(pos_grad)  # sensitivity
                 )
 
-              accum_features[i, :] += (
-                  tile_feature[in_group_idx] * weight
-              )
+
 
               # Step to next hit
               hit_idx += 1
@@ -213,6 +222,7 @@ def backward_kernel(config: RasterConfig,
       # end of tile loop
 
   return _backward_kernel
+
 
 
 
