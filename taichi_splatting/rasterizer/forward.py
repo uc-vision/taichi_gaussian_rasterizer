@@ -85,9 +85,9 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
 
                 # Process all points in group for each pixel in tile
                 for in_group_idx in range(min(tile_area, remaining_points)):
-                    if remaining_samples == 0:
-                      break
-
+                    if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), ti.i32(remaining_samples == 0)):
+                        break
+                        
                     mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
 
                     gaussian_alpha = gaussian_pdf(pixelf, mean, axis, sigma)
