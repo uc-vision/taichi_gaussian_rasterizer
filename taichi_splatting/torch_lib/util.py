@@ -12,25 +12,28 @@ def check_finite(t, name, warn=False):
     else:
       raise ValueError(f'Non-finite entries: {d}')
   
-  
+
+def append_nonfinite(d: dict, name: str, t: torch.Tensor):
+  n = (~torch.isfinite(t)).sum()
+  if n > 0:
+    d[name] = n
+
+  return d
 
 def count_nonfinite(t, name, warn=False) -> dict:
   d = {}
-
   if isinstance(t, torch.Tensor):
-    d[name] = (~torch.isfinite(t)).sum()
+    append_nonfinite(d, name, t)
     if t.grad is not None:
-      d[f'{name}.grad'] = count_nonfinite(t.grad, f'{name}.grad', warn)
+      append_nonfinite(d, f'{name}.grad', t.grad)
     return d
   
   if isinstance(t, Sequence) and not isinstance(t, str):
-    d = {}
     for i, v in enumerate(t):
       d.update(count_nonfinite(v, f'{name}[{i}]', warn))
     return d
   
   if isinstance(t, Mapping):
-    d = {}
     for k, v in t.items():
       d.update(count_nonfinite(v, f'{name}.{k}', warn))
     return d
