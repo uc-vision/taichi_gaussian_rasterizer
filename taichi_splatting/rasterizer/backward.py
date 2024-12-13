@@ -128,12 +128,17 @@ def backward_kernel(config: RasterConfig,
         
         # Process all points in group for pixel
         for in_group_idx in range(min(tile_area, remaining_points)):
-          mean, axis, sigma, _ = Gaussian2D.unpack(tile_point[in_group_idx])
-          
-          if next_hit == tile_point_id[in_group_idx]:
+          has_grad = next_hit == tile_point_id[in_group_idx]
+          grad_point = Gaussian2D.vec(0.0)
+          grad_feature = feature_vec(0.0)
+          point_heuristics = vec2(0.0)
+
+          if has_grad:
             pixelf = ti.cast(pixel, dtype) + 0.5
 
             # Compute gaussian gradients
+            mean, axis, sigma, _ = Gaussian2D.unpack(tile_point[in_group_idx])
+
             gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = gaussian_pdf(pixelf, mean, axis, sigma)
             weight = num_next_hit / config.samples
 
@@ -152,24 +157,24 @@ def backward_kernel(config: RasterConfig,
                       alpha_grad * dp_daxis, 
                       alpha_grad * dp_dsigma, 
                       gaussian_alpha * alpha_grad)
-
-
+            
+            gaussian_point_heuristics = vec2(weight, lib.l1_norm(pos_grad))
+            grad_feature = weight * grad_image_feature[pixel.y, pixel.x]
 
             # Step to next hit
             hit_idx += 1
             next_hit, num_next_hit = decode_hit(image_hits[pixel.y, pixel.x, hit_idx])
 
+          if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(has_grad)):
 
-          if ti.static(points_requires_grad):
-            warp_add_vector(tile_grad_point[in_group_idx], grad_point)
-          
-          if ti.static(features_requires_grad):
-            grad_feature = weight * grad_image_feature[pixel.y, pixel.x]
-            warp_add_vector(tile_grad_feature[in_group_idx], grad_feature)
+            if ti.static(points_requires_grad):
+              warp_add_vector(tile_grad_point[in_group_idx], grad_point)
+            
+            if ti.static(features_requires_grad):
+              warp_add_vector(tile_grad_feature[in_group_idx], grad_feature)
 
-          if ti.static(config.compute_point_heuristics):
-            gaussian_point_heuristics = vec2(weight, lib.l1_norm(pos_grad))
-            warp_add_vector(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
+            if ti.static(config.compute_point_heuristics):
+              warp_add_vector(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
 
         ti.simt.block.sync()
 
