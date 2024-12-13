@@ -23,6 +23,7 @@ def backward_kernel(config: RasterConfig,
   feature_vec = ti.types.vector(feature_size, dtype=dtype)
   tile_size = config.tile_size
   tile_area = tile_size * tile_size
+  hit_vector = ti.types.vector(config.samples, dtype=ti.u32)
 
   # Select implementations based on dtype
   warp_add_vector = warp_add_vector_32 if dtype == ti.f32 else warp_add_vector_64
@@ -43,7 +44,7 @@ def backward_kernel(config: RasterConfig,
       overlap_to_point: ti.types.ndarray(ti.i32, ndim=1),            # [P] mapping from overlap index to point index
 
       # Image buffers
-      image_hits: ti.types.ndarray(ti.u32, ndim=3),                  # [H, W, S] encoded hit buffer
+      image_hits: ti.types.ndarray(hit_vector, ndim=2),                  # [H, W, S] encoded hit buffer
       image_feature: ti.types.ndarray(feature_vec, ndim=2),          # [H, W, F] output features
       image_alpha: ti.types.ndarray(dtype, ndim=2),                  # [H, W] alpha values
 
@@ -66,9 +67,13 @@ def backward_kernel(config: RasterConfig,
       pixel = tiling.tile_transform(tile_id, tile_idx, 
                                    tile_size, (1, 1), tiles_wide)
 
+      grad_pixel_feature = grad_image_feature[pixel.y, pixel.x]
+
       # Initialize accumulators for pixel
       remaining_features = feature_vec(0.0)
       remaining_weight = ti.f32(0.0)
+
+      pixel_hits = image_hits[pixel.y, pixel.x]
 
       next_hit = ti.i32(0)
       num_next_hit = ti.i32(0)
@@ -81,7 +86,7 @@ def backward_kernel(config: RasterConfig,
         remaining_features = image_feature[pixel.y, pixel.x]
         remaining_weight = image_alpha[pixel.y, pixel.x]
 
-        next_hit, num_next_hit = decode_hit(image_hits[pixel.y, pixel.x, 0])
+        next_hit, num_next_hit = decode_hit(pixel_hits[0])
 
       start_offset, end_offset = tile_overlap_ranges[tile_id]
       tile_point_count = end_offset - start_offset
@@ -128,11 +133,11 @@ def backward_kernel(config: RasterConfig,
         
         # Process all points in group for pixel
         for in_group_idx in range(min(tile_area, remaining_points)):
-          has_grad = next_hit == tile_point_id[in_group_idx]
           grad_point = Gaussian2D.vec(0.0)
+          gaussian_point_heuristics = vec2(0.0)
           grad_feature = feature_vec(0.0)
-          point_heuristics = vec2(0.0)
 
+          has_grad = next_hit == tile_point_id[in_group_idx]
           if has_grad:
             pixelf = ti.cast(pixel, dtype) + 0.5
 
@@ -148,7 +153,9 @@ def backward_kernel(config: RasterConfig,
 
             # Compute feature difference and gradient
             feature_diff = tile_feature[in_group_idx] * weight - remaining_features / remaining_weight
-            alpha_grad_from_feature = feature_diff * grad_image_feature[pixel.y, pixel.x]
+            grad_feature = weight * grad_pixel_feature
+
+            alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()
 
             # Compute gradients
@@ -159,17 +166,19 @@ def backward_kernel(config: RasterConfig,
                       gaussian_alpha * alpha_grad)
             
             gaussian_point_heuristics = vec2(weight, lib.l1_norm(pos_grad))
-            grad_feature = weight * grad_image_feature[pixel.y, pixel.x]
 
             # Step to next hit
             hit_idx += 1
-            next_hit, num_next_hit = decode_hit(image_hits[pixel.y, pixel.x, hit_idx])
+            next_hit, num_next_hit = decode_hit(pixel_hits[hit_idx])
 
+
+          # Check if any thread in the warp has a gradient
           if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(has_grad)):
 
+            # Accumulate gradients in shared memory across the warp
             if ti.static(points_requires_grad):
               warp_add_vector(tile_grad_point[in_group_idx], grad_point)
-            
+  
             if ti.static(features_requires_grad):
               warp_add_vector(tile_grad_feature[in_group_idx], grad_feature)
 
@@ -178,13 +187,16 @@ def backward_kernel(config: RasterConfig,
 
         ti.simt.block.sync()
 
-        # Write gradients to global memory
         if load_index < end_offset:
           point_idx = tile_point_id[tile_idx]
+          
+          # Write gradients to global memory
           if ti.static(points_requires_grad):
             ti.atomic_add(grad_points[point_idx], tile_grad_point[tile_idx])
+
           if ti.static(features_requires_grad):
             ti.atomic_add(grad_features[point_idx], tile_grad_feature[tile_idx])
+
           if ti.static(config.compute_point_heuristics):
             ti.atomic_add(point_heuristics[point_idx], tile_point_heuristics[tile_idx])
 
