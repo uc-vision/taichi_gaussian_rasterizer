@@ -66,7 +66,6 @@ def backward_kernel(config: RasterConfig,
     for tile_id, tile_idx in ti.ndrange(tiles_wide * tiles_high, tile_area):
       pixel = tiling.tile_transform(tile_id, tile_idx, 
                                    tile_size, (1, 1), tiles_wide)
-      pixelf = vec2(pixel.x, pixel.y) + 0.5
 
       grad_pixel_feature = grad_image_feature[pixel.y, pixel.x]
 
@@ -134,11 +133,16 @@ def backward_kernel(config: RasterConfig,
         
         # Process all points in group for pixel
         for in_group_idx in range(min(tile_area, remaining_points)):
-          if num_next_hit == 0:
+          if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), ti.i32(num_next_hit == 0)):
             break
 
+          grad_point = Gaussian2D.vec(0.0)
+          gaussian_point_heuristics = vec2(0.0)
+          grad_feature = feature_vec(0.0)
 
-          if next_hit == tile_point_id[in_group_idx]:
+          has_grad = next_hit == tile_point_id[in_group_idx]
+          if has_grad:
+            pixelf = ti.cast(pixel, dtype) + 0.5
 
             # Compute gaussian gradients
             mean, axis, sigma, _ = Gaussian2D.unpack(tile_point[in_group_idx])
@@ -152,30 +156,37 @@ def backward_kernel(config: RasterConfig,
 
             # Compute feature difference and gradient
             feature_diff = tile_feature[in_group_idx] * weight - remaining_features / remaining_weight
+            grad_feature = weight * grad_pixel_feature
 
             alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()
 
             # Compute gradients
-            if ti.static(points_requires_grad):
-              grad_point = Gaussian2D.to_vec(alpha_grad * dp_dmean, 
-                        alpha_grad * dp_daxis, 
-                        alpha_grad * dp_dsigma, 
-                        gaussian_alpha * alpha_grad)
-              ti.atomic_add(tile_grad_point[in_group_idx], grad_point)
+            pos_grad = alpha_grad * dp_dmean
+            grad_point = Gaussian2D.to_vec(pos_grad, 
+                      alpha_grad * dp_daxis, 
+                      alpha_grad * dp_dsigma, 
+                      gaussian_alpha * alpha_grad)
             
-            if ti.static(features_requires_grad):
-              grad_feature = weight * grad_pixel_feature
-              ti.atomic_add(tile_grad_feature[in_group_idx], grad_feature)
-            
-            if ti.static(config.compute_point_heuristics):
-              gaussian_point_heuristics = vec2(weight, lib.l1_norm(alpha_grad * dp_dmean))
-              ti.atomic_add(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
+            gaussian_point_heuristics = vec2(weight, lib.l1_norm(pos_grad))
 
             # Step to next hit
             hit_idx += 1
             next_hit, num_next_hit = decode_hit(pixel_hits[hit_idx])
 
+
+          # Check if any thread in the warp has a gradient
+          if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(has_grad)):
+
+            # Accumulate gradients in shared memory across the warp
+            if ti.static(points_requires_grad):
+              warp_add_vector(tile_grad_point[in_group_idx], grad_point)
+  
+            if ti.static(features_requires_grad):
+              warp_add_vector(tile_grad_feature[in_group_idx], grad_feature)
+
+            if ti.static(config.compute_point_heuristics):
+              warp_add_vector(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
 
         ti.simt.block.sync()
 
