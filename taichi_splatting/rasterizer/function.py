@@ -78,6 +78,7 @@ def render_function(config:RasterConfig,
       ctx.image_size = image_size
       ctx.point_heuristics = point_heuristics
       ctx.visibility = visibility
+      ctx.image_feature = image_feature
 
       ctx.mark_non_differentiable(image_alpha, image_hits, overlap_to_point, tile_overlap_ranges, visibility, point_heuristics)
       ctx.save_for_backward(gaussians, features)
@@ -98,8 +99,14 @@ def render_function(config:RasterConfig,
         backward(gaussians, features, 
           ctx.tile_overlap_ranges, ctx.overlap_to_point,
           ctx.image_hits,
+
+          ctx.image_feature,
+          ctx.image_alpha,
+
           grad_image_feature.contiguous(),
-          grad_gaussians, grad_features, ctx.point_heuristics)
+          grad_gaussians, grad_features, 
+          
+          ctx.point_heuristics)
 
 
         return grad_gaussians, grad_features, None, None, None, None

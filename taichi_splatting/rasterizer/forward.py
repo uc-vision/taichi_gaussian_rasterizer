@@ -64,6 +64,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
             # open shared memory
             tile_point = ti.simt.block.SharedArray((tile_area, ), dtype=Gaussian2D.vec)
             tile_feature = ti.simt.block.SharedArray((tile_area, ), dtype=feature_vec)
+            tile_point_id = ti.simt.block.SharedArray((tile_area, ), dtype=ti.i32)
 
             for point_group_id in range(num_point_groups):
                 if not ti.simt.block.sync_any_nonzero(remaining_samples):
@@ -77,7 +78,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                     point_idx = overlap_to_point[load_index]
                     tile_point[tile_idx] = points[point_idx]
                     tile_feature[tile_idx] = point_features[point_idx]
-
+                    tile_point_id[tile_idx] = point_idx
                 ti.simt.block.sync()
 
                 remaining_points = tile_point_count - point_group_id
@@ -103,8 +104,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                         )
 
 
-                        index =  group_start_offset + in_group_idx + 1
-                        encoded = ti.u32(index) << ti.u32(6) | ti.u32(new_hits)
+                        encoded = ti.u32(tile_point_id[in_group_idx]) << ti.u32(6) | ti.u32(new_hits)
                         hits[hit_index] = encoded
                         hit_index += 1
 
