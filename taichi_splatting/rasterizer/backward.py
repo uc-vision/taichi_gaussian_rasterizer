@@ -24,7 +24,6 @@ def backward_kernel(config: RasterConfig,
   feature_vec = ti.types.vector(feature_size, dtype=dtype)
   tile_size = config.tile_size
   tile_area = tile_size * tile_size
-  hit_vector = ti.types.vector(config.samples, dtype=ti.u32)
 
   # Select implementations based on dtype
   warp_add_vector = warp_add_vector_32 if dtype == ti.f32 else warp_add_vector_64
@@ -69,15 +68,14 @@ def backward_kernel(config: RasterConfig,
       grad_pixel_feature = feature_vec(0.) 
       # Initialize accumulators for pixel
       remaining_features = feature_vec(0.0)
-      total_weight = ti.f32(0.0)
+      total_weight = 1.0
 
       # Check bounds and initialize remaining features
       in_bounds = pixel.y < camera_height and pixel.x < camera_width
       if in_bounds:
         remaining_features = image_feature[pixel.y, pixel.x]
-        total_weight = image_alpha[pixel.y, pixel.x]
         grad_pixel_feature = grad_image_feature[pixel.y, pixel.x]
-
+        total_weight = 0.0
 
       start_offset, end_offset = tile_overlap_ranges[tile_id]
       tile_point_count = end_offset - start_offset
@@ -134,12 +132,15 @@ def backward_kernel(config: RasterConfig,
           grad_point = Gaussian2D.vec(0.0)
           gaussian_point_heuristics = vec2(0.0)
           grad_feature = feature_vec(0.0)
+
+
           mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
           gaussian_alpha = pdf(pixelf, mean, axis, sigma)
           alpha = gaussian_alpha * point_alpha
 
           has_grad = alpha > config.alpha_threshold and not saturated
           if has_grad:
+
             # Compute gaussian gradients
             alpha, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
             weight = alpha * total_weight

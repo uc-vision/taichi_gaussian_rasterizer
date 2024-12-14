@@ -72,16 +72,14 @@ def render_function(config:RasterConfig,
       # Non differentiable parameters
       ctx.overlap_to_point = overlap_to_point
       ctx.tile_overlap_ranges = tile_overlap_ranges
-      ctx.image_alpha = image_alpha
       ctx.image_size = image_size
       ctx.point_heuristics = point_heuristics
       ctx.visibility = visibility
 
 
       ctx.mark_non_differentiable(image_alpha, overlap_to_point, tile_overlap_ranges, visibility, point_heuristics)
-      ctx.save_for_backward(gaussians, features, image_feature)
+      ctx.save_for_backward(gaussians, features, image_feature, image_alpha)
     
-            
       return image_feature, image_alpha, point_heuristics, visibility
 
     @staticmethod
@@ -89,23 +87,21 @@ def render_function(config:RasterConfig,
                  grad_alpha:torch.Tensor, grad_point_heuristics:torch.Tensor,
                  grad_visibility:torch.Tensor):
         
-        gaussians, features, image_feature = ctx.saved_tensors
+        gaussians, features, image_feature, image_alpha = ctx.saved_tensors
 
         grad_gaussians = torch.zeros_like(gaussians)
         grad_features = torch.zeros_like(features)
   
         backward(gaussians, features, 
           ctx.tile_overlap_ranges, ctx.overlap_to_point,
-          ctx.image_hits,
 
           image_feature,
-          ctx.image_alpha,
+          image_alpha,
 
           grad_image_feature.contiguous(),
           grad_gaussians, grad_features, 
           
           ctx.point_heuristics)
-
 
         return grad_gaussians, grad_features, None, None, None, None
     

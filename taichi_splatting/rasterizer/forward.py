@@ -87,7 +87,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                         total_weight += weight
                         
             # Write final results
-            if pixel.y < camera_height and pixel.x < camera_width:
+            if in_bounds:
                 image_feature[pixel.y, pixel.x] = accum_features 
                 image_alpha[pixel.y, pixel.x] = total_weight
 
