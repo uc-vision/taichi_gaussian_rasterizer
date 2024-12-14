@@ -16,7 +16,6 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
     tile_size = config.tile_size
     tile_area = tile_size * tile_size
 
-    hit_vector = ti.types.vector(config.samples, dtype=ti.u32)
     pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
 
     @ti.kernel
@@ -72,8 +71,6 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
 
                 # Process all points in group for each pixel in tile
                 for in_group_idx in range(min(tile_area, remaining_points)):
-                    # if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), ti.i32(T < ti.static(1 - config.saturate_threshold))):
-                    #     break
                     if total_weight >= ti.static(config.saturate_threshold):
                         break
                         
@@ -91,8 +88,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                         
             # Write final results
             if pixel.y < camera_height and pixel.x < camera_width:
-                image_feature[pixel.y, pixel.x] = accum_features
-
+                image_feature[pixel.y, pixel.x] = accum_features 
                 image_alpha[pixel.y, pixel.x] = total_weight
 
     return _forward_kernel

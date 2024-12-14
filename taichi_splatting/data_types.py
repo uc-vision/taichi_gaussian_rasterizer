@@ -31,7 +31,7 @@ class RasterConfig:
   alpha_threshold: float = 1. / 255.
 
   # stop alpha blending at this point
-  saturate_threshold: float = 0.9999
+  saturate_threshold: float = 0.99 # 0.9999
 
   # use alpha blending - if set to false, with saturate_threshold can be used to compute quantile (e.g. median)
   use_alpha_blending: bool = True

@@ -43,7 +43,6 @@ def backward_kernel(config: RasterConfig,
       overlap_to_point: ti.types.ndarray(ti.i32, ndim=1),            # [P] mapping from overlap index to point index
 
       # Image buffers
-      image_hits: ti.types.ndarray(hit_vector, ndim=2),                  # [H, W, S] encoded hit buffer
       image_feature: ti.types.ndarray(feature_vec, ndim=2),          # [H, W, F] output features
       image_alpha: ti.types.ndarray(dtype, ndim=2),                  # [H, W] alpha values
 
@@ -70,29 +69,19 @@ def backward_kernel(config: RasterConfig,
       grad_pixel_feature = feature_vec(0.) 
       # Initialize accumulators for pixel
       remaining_features = feature_vec(0.0)
-      T = ti.f32(0.0)
-
-      pixel_hits = hit_vector(0)
-      next_hit = ti.i32(0)
-      num_next_hit = ti.i32(0)
-
-      hit_idx = ti.i32(0)
+      total_weight = ti.f32(0.0)
 
       # Check bounds and initialize remaining features
       in_bounds = pixel.y < camera_height and pixel.x < camera_width
       if in_bounds:
         remaining_features = image_feature[pixel.y, pixel.x]
-        remaining_weight = image_alpha[pixel.y, pixel.x]
-
+        total_weight = image_alpha[pixel.y, pixel.x]
         grad_pixel_feature = grad_image_feature[pixel.y, pixel.x]
-        pixel_hits = image_hits[pixel.y, pixel.x]
 
-        next_hit, num_next_hit = tiling.decode_hit(pixel_hits[0])
 
       start_offset, end_offset = tile_overlap_ranges[tile_id]
       tile_point_count = end_offset - start_offset
       num_point_groups = (tile_point_count + tile_area - 1) // tile_area
-
 
 
 
@@ -111,7 +100,7 @@ def backward_kernel(config: RasterConfig,
                               if ti.static(config.compute_point_heuristics) else None)
 
       for point_group_id in range(num_point_groups):
-        if not ti.simt.block.sync_any_nonzero(ti.i32(num_next_hit == 0)):
+        if ti.simt.block.sync_all_nonzero(ti.i32(total_weight >= config.saturate_threshold)):
           break
 
         # Load points into shared memory
@@ -137,38 +126,36 @@ def backward_kernel(config: RasterConfig,
         
         # Process all points in group for pixel
         for in_group_idx in range(min(tile_area, remaining_points)):
-          # if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), ti.i32(num_next_hit == 0)):
-          #   break
+
+          saturated = total_weight >= ti.static(config.saturate_threshold)
+          if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), ti.i32(saturated)):
+            break
 
           grad_point = Gaussian2D.vec(0.0)
           gaussian_point_heuristics = vec2(0.0)
           grad_feature = feature_vec(0.0)
+          mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
+          gaussian_alpha = pdf(pixelf, mean, axis, sigma)
+          alpha = gaussian_alpha * point_alpha
 
-  
-          has_grad = ti.i32(next_hit == tile_point_id[in_group_idx])
-          if has_grad > 0:
-
-
+          has_grad = alpha > config.alpha_threshold and not saturated
+          if has_grad:
             # Compute gaussian gradients
-            mean, axis, sigma, _ = Gaussian2D.unpack(tile_point[in_group_idx])
-
-            _, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
-            weight = num_next_hit / ti.static(config.samples)
+            alpha, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
+            weight = alpha * total_weight
 
             # Accumulate total hits and subtract accumulated features
             remaining_features -= tile_feature[in_group_idx] * weight
 
-            prev = remaining_weight
-            T -= weight
+            total_weight += weight
+            remaining_weight = 1.0 - total_weight
 
             # Compute feature difference between point and remaining features (from points behind this one)
-            feature_diff = tile_feature[in_group_idx] * weight - remaining_features / (T + eps)
+            feature_diff = tile_feature[in_group_idx] - remaining_features / (remaining_weight + eps)
 
             alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()
             
-            # if (ti.math.isnan(alpha_grad) or ti.math.isinf(alpha_grad)):
-            #   print(feature_diff, num_next_hit, remaining_weight, weight)
 
             # Compute gradients
             if ti.static(points_requires_grad):
@@ -180,14 +167,9 @@ def backward_kernel(config: RasterConfig,
             if ti.static(features_requires_grad):
               grad_feature = weight * grad_pixel_feature
 
-            # Step to next hit
-            hit_idx += 1
-            next_hit, num_next_hit = tiling.decode_hit(pixel_hits[hit_idx])
-
 
           # Check if any thread in the warp has a gradient
-          # if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(has_grad)):
-          if True:
+          if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(has_grad)):
             # Accumulate gradients in shared memory across the warp
             if ti.static(points_requires_grad):
               warp_add_vector(tile_grad_point[in_group_idx], grad_point)
