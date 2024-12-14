@@ -142,17 +142,18 @@ def backward_kernel(config: RasterConfig,
           if has_grad:
 
             # Compute gaussian gradients
-            alpha, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
-            weight = alpha * total_weight
+            _, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
+            weight = alpha * (1.0 - total_weight)
 
             # Accumulate total hits and subtract accumulated features
             remaining_features -= tile_feature[in_group_idx] * weight
-
             total_weight += weight
-            remaining_weight = 1.0 - total_weight
 
             # Compute feature difference between point and remaining features (from points behind this one)
-            feature_diff = tile_feature[in_group_idx] - remaining_features / (remaining_weight + eps)
+            feature_diff = tile_feature[in_group_idx] - remaining_features / ( 1.0 - total_weight + eps)
+
+            # if ti.math.isinf(feature_diff).any() or ti.math.isnan(feature_diff).any():
+            #   print(remaining_weight, feature_diff, remaining_features, in_bounds, tile_feature[in_group_idx])
 
             alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()

@@ -122,6 +122,7 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
     visibility = raster.point_heuristics[:, 0]
     visible = (visibility > 1e-8).nonzero().squeeze(1)
 
+
     if isinstance(opt, VisibilityOptimizer):
       opt.step(indexes = visible, 
               visibility=visibility[visible], 
