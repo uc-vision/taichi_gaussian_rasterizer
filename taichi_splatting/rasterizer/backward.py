@@ -151,14 +151,11 @@ def backward_kernel(config: RasterConfig,
 
 
             # Compute feature difference between point  and remaining features (from points behind this one)
-            feature_diff = tile_feature[in_group_idx] * weight - remaining_features / (1.0 - total_weight + eps)
-
+            feature_diff = tile_feature[in_group_idx] *  - remaining_features / (1.0 - alpha + eps)
 
             alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()
             
-
-
 
 
             # Compute gradients
