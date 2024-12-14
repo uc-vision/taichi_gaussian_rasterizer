@@ -64,3 +64,23 @@ def tile_transform(tile_id:ti.i32, tile_idx:ti.i32,
     pixel = ivec2(tile_u, tile_v) * tile_size + ivec2(u, v) 
     return pixel
 
+
+@ti.func
+def round_up(a: ti.i32, b: ti.i32) -> ti.i32:
+    return (a + (b - 1)) // b
+
+@ti.func
+def encode_hit(point_id: ti.i32, hits: ti.i32) -> ti.u32:
+    return ti.u32(point_id) << ti.u32(6) | ti.u32(hits)
+
+
+@ti.func
+def decode_hit(hit: ti.u32):
+    id = -1
+    count = 0
+  
+    if hit != 0:
+      id = ti.cast(hit >> 6, ti.i32)
+      count = ti.cast(hit & 0x3F, ti.i32)
+
+    return id, count

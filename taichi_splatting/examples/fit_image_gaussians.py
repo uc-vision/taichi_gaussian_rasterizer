@@ -253,19 +253,20 @@ def main():
   gaussians = random_2d_gaussians(cmd_args.n, (w, h), alpha_range=(0.5, 1.0), scale_factor=0.5).to(torch.device('cuda:0'))
   
   parameter_groups = dict(
-    position=dict(lr=lr_range[0], type='local_vector'),
-    log_scaling=dict(lr=0.01),
+    # position=dict(lr=lr_range[0], type='local_vector'),
+    position=dict(lr=0., type='vector'),
+    log_scaling=dict(lr=0.00),
 
-    rotation=dict(lr=1.0),
-    alpha_logit=dict(lr=0.01),
-    feature=dict(lr=0.01, type='vector')
+    rotation=dict(lr=0.1),
+    alpha_logit=dict(lr=0.1),
+    feature=dict(lr=0.025, type='vector')
   )
   
   # params = ParameterClass(gaussians.to_tensordict(), 
-  #       parameter_groups, optimizer=SparseAdam, betas=(0.9, 0.95), eps=1e-16, bias_correction=True)
+  # #       parameter_groups, optimizer=SparseAdam, betas=(0.9, 0.95), eps=1e-16, bias_correction=True)
 
   params = ParameterClass(gaussians.to_tensordict(), 
-        parameter_groups, optimizer=VisibilityAwareLaProp, vis_beta=0.9, betas=(0.9, 0.9), eps=1e-16, bias_correction=False)
+        parameter_groups, optimizer=VisibilityAwareLaProp,  betas=(0.9, 0.9), eps=1e-16, bias_correction=False)
   
   keys = set(params.keys())
   trainable = set(params.optimized_keys())
@@ -301,7 +302,7 @@ def main():
   for  epoch_size in epochs:
 
     t = (iteration + epoch_size * 0.5) / cmd_args.iters
-    params.set_learning_rate(position = log_lerp(t, *lr_range))
+    # params.set_learning_rate(position = log_lerp(t, *lr_range))
     metrics = {}
 
     image, point_heuristics, epoch_time = train(params.optimizer, params, ref_image, 

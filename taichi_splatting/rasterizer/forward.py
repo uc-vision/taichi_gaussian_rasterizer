@@ -22,9 +22,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
     hit_vector = ti.types.vector(config.samples, dtype=ti.u32)
     gaussian_pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
 
-    @ti.func
-    def round_up(a, b):
-        return (a + (b - 1)) // b
+
 
     @ti.kernel
     def _forward_kernel(
@@ -33,8 +31,9 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
         tile_overlap_ranges: ti.types.ndarray(ti.math.ivec2, ndim=1),
         overlap_to_point: ti.types.ndarray(ti.i32, ndim=1),
         image_feature: ti.types.ndarray(feature_vec, ndim=2),
-        image_hits: ti.types.ndarray(hit_vector, ndim=2),
+        image_alpha: ti.types.ndarray(ti.f32, ndim=2),
 
+        image_hits: ti.types.ndarray(hit_vector, ndim=2),
         seed: ti.uint32
     ):
         camera_height, camera_width = image_feature.shape
@@ -59,7 +58,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
 
             start_offset, end_offset = tile_overlap_ranges[tile_id]
             tile_point_count = end_offset - start_offset
-            num_point_groups = round_up(tile_point_count, tile_area)
+            num_point_groups = tiling.round_up(tile_point_count, tile_area)
 
             # open shared memory
             tile_point = ti.simt.block.SharedArray((tile_area, ), dtype=Gaussian2D.vec)
@@ -104,7 +103,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                         )
 
 
-                        encoded = ti.u32(tile_point_id[in_group_idx]) << ti.u32(6) | ti.u32(new_hits)
+                        encoded = tiling.encode_hit(tile_point_id[in_group_idx], new_hits)
                         hits[hit_index] = encoded
                         hit_index += 1
 
@@ -114,6 +113,10 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
             # Write final results
             if pixel.y < camera_height and pixel.x < camera_width:
                 image_feature[pixel.y, pixel.x] = accum_features
+
+                alpha = (ti.static(config.samples) - remaining_samples) / ti.static(config.samples)
+                image_alpha[pixel.y, pixel.x] = alpha
+
                 image_hits[pixel.y, pixel.x] = hits
     return _forward_kernel
 

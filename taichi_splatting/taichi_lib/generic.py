@@ -490,7 +490,7 @@ def make_library(dtype=ti.f32):
 
 
   @ti.func
-  def xoshiro128(state: ti.u32):
+  def xoshiro128(state: ti.u32): 
     # xoshiro128** algorithm
     result = ((state * ti.u32(5)) << ti.u32(7)) 
     
