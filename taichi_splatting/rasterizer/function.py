@@ -64,23 +64,21 @@ def render_function(config:RasterConfig,
       else:
         visibility = torch.empty((0), dtype=dtype, device=features.device)
 
-      seed = np.random.randint(0, 2**32)
 
       forward(gaussians, features, 
         tile_overlap_ranges, overlap_to_point,
-        image_feature, image_alpha, image_hits, seed)
+        image_feature, image_alpha)
 
       # Non differentiable parameters
       ctx.overlap_to_point = overlap_to_point
       ctx.tile_overlap_ranges = tile_overlap_ranges
-      ctx.image_hits = image_hits
       ctx.image_alpha = image_alpha
       ctx.image_size = image_size
       ctx.point_heuristics = point_heuristics
       ctx.visibility = visibility
 
 
-      ctx.mark_non_differentiable(image_alpha, image_hits, overlap_to_point, tile_overlap_ranges, visibility, point_heuristics)
+      ctx.mark_non_differentiable(image_alpha, overlap_to_point, tile_overlap_ranges, visibility, point_heuristics)
       ctx.save_for_backward(gaussians, features, image_feature)
     
             

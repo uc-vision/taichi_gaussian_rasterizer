@@ -28,7 +28,8 @@ def backward_kernel(config: RasterConfig,
 
   # Select implementations based on dtype
   warp_add_vector = warp_add_vector_32 if dtype == ti.f32 else warp_add_vector_64
-  gaussian_pdf = lib.gaussian_pdf_antialias_with_grad if config.antialias else lib.gaussian_pdf_with_grad
+  pdf_with_grad = lib.gaussian_pdf_antialias_with_grad if config.antialias else lib.gaussian_pdf_with_grad
+  pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
 
 
   @ti.kernel
@@ -69,7 +70,7 @@ def backward_kernel(config: RasterConfig,
       grad_pixel_feature = feature_vec(0.) 
       # Initialize accumulators for pixel
       remaining_features = feature_vec(0.0)
-      remaining_weight = ti.f32(0.0)
+      T = ti.f32(0.0)
 
       pixel_hits = hit_vector(0)
       next_hit = ti.i32(0)
@@ -151,20 +152,17 @@ def backward_kernel(config: RasterConfig,
             # Compute gaussian gradients
             mean, axis, sigma, _ = Gaussian2D.unpack(tile_point[in_group_idx])
 
-            _, dp_dmean, dp_daxis, dp_dsigma = gaussian_pdf(pixelf, mean, axis, sigma)
+            _, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
             weight = num_next_hit / ti.static(config.samples)
 
             # Accumulate total hits and subtract accumulated features
             remaining_features -= tile_feature[in_group_idx] * weight
 
             prev = remaining_weight
-            remaining_weight -= weight
-
-            if ti.math.isnan(remaining_weight) or ti.math.isinf(remaining_weight):
-              print(next_hit, num_next_hit, weight, prev, in_bounds)
+            T -= weight
 
             # Compute feature difference between point and remaining features (from points behind this one)
-            feature_diff = tile_feature[in_group_idx] * weight - remaining_features / (remaining_weight + eps)
+            feature_diff = tile_feature[in_group_idx] * weight - remaining_features / (T + eps)
 
             alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()
