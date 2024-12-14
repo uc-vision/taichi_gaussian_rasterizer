@@ -159,10 +159,11 @@ def backward_kernel(config: RasterConfig,
 
             # Compute gradients
             if ti.static(points_requires_grad):
-              grad_point = alpha_grad * Gaussian2D.to_vec(dp_dmean, dp_daxis, dp_dsigma, 1.0)
+              grad_point = alpha_grad * Gaussian2D.to_vec(point_alpha * dp_dmean, 
+                    point_alpha * dp_daxis, point_alpha * dp_dsigma, gaussian_alpha * alpha_grad)
             
             if ti.static(config.compute_point_heuristics):
-              gaussian_point_heuristics = vec2(weight, lib.l1_norm( alpha_grad * dp_dmean))
+              gaussian_point_heuristics = vec2(weight, lib.l1_norm( alpha_grad * point_alpha * dp_dmean))
 
             if ti.static(features_requires_grad):
               grad_feature = weight * grad_pixel_feature
