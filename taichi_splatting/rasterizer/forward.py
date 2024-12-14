@@ -42,7 +42,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
             in_bounds = pixel.y < camera_height and pixel.x < camera_width
 
             accum_features = feature_vec(0.0)
-            T = 1.0 if in_bounds else 0.0
+            total_weight = 0.0 if in_bounds else 1.0
 
             start_offset, end_offset = tile_overlap_ranges[tile_id]
             tile_point_count = end_offset - start_offset
@@ -54,7 +54,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
             tile_point_id = ti.simt.block.SharedArray((tile_area, ), dtype=ti.i32)
 
             for point_group_id in range(num_point_groups):
-                if ti.simt.block.sync_all_nonzero(ti.i32(T < ti.static(1 - config.saturate_threshold))):
+                if ti.simt.block.sync_all_nonzero(ti.i32(total_weight >= ti.static(config.saturate_threshold))):
                     break
 
                 # Load points into shared memory
@@ -72,7 +72,9 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
 
                 # Process all points in group for each pixel in tile
                 for in_group_idx in range(min(tile_area, remaining_points)):
-                    if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), ti.i32(T < ti.static(1 - config.saturate_threshold))):
+                    # if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), ti.i32(T < ti.static(1 - config.saturate_threshold))):
+                    #     break
+                    if total_weight >= ti.static(config.saturate_threshold):
                         break
                         
                     mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
@@ -82,16 +84,16 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                     alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
 
                     if alpha > config.alpha_threshold:
-                        weight = alpha * T
-                        accum_features += tile_feature[in_group_idx] * weight
+                        weight = alpha * (1.0 - total_weight)
 
-                        T -= weight
+                        accum_features += tile_feature[in_group_idx] * weight
+                        total_weight += weight
                         
             # Write final results
             if pixel.y < camera_height and pixel.x < camera_width:
                 image_feature[pixel.y, pixel.x] = accum_features
 
-                image_alpha[pixel.y, pixel.x] = (1 - T)
+                image_alpha[pixel.y, pixel.x] = total_weight
 
     return _forward_kernel
 
