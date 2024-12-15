@@ -28,8 +28,10 @@ def parse_args(args=None):
   parser.add_argument('--iters', type=int, default=1000)
   parser.add_argument('--antialias', action='store_true')
   parser.add_argument('--debug', action='store_true')
-  parser.add_argument("--pixel_stride", type=str, default="2,2", help="pixel tile size for rasterizer, e.g. 2,2")
-  parser.add_argument("--samples", type=int, default=4, help="number of samples for rasterizer")
+  parser.add_argument('--skip_forward', action='store_true')
+  parser.add_argument('--saturate_threshold', type=float, default=0.9999)
+  parser.add_argument('--alpha_threshold', type=float, default=1/255)
+  parser.add_argument('--pixel_stride', type=str, default='2,2')
 
   args = parser.parse_args(args)
   args.image_size = tuple(map(int, args.image_size.split(',')))
@@ -46,10 +48,8 @@ def bench_rasterizer(args):
     depth_range = (0.1, 100.)
     gaussians = random_2d_gaussians(args.n, args.image_size, num_channels=args.num_channels,
             scale_factor=args.scale_factor, alpha_range=(0.75, 1.0), depth_range=depth_range).to(args.device)
-    config = RasterConfig(tile_size=args.tile_size, 
-                          antialias=args.antialias,
-                          pixel_stride=args.pixel_stride,
-                          samples=args.samples)
+    config = RasterConfig(tile_size=args.tile_size, antialias=args.antialias, pixel_stride=args.pixel_stride, 
+      saturate_threshold=args.saturate_threshold, alpha_threshold=args.alpha_threshold)
     
     gaussians2d = project_gaussians2d(gaussians)
 
@@ -69,13 +69,15 @@ def bench_rasterizer(args):
       tile_overlap_ranges=tile_ranges.view(-1, 2), overlap_to_point=overlap_to_point,
       image_size=args.image_size, config=config)
     
-    benchmarked('forward', forward, profile=args.profile, iters=args.iters * 4)  
+    if not args.skip_forward:
+      benchmarked('forward', forward, profile=args.profile, iters=args.iters * 4)  
 
     forward_visible = partial(rasterize_with_tiles, gaussians2d=gaussians2d, features=gaussians.feature, 
       tile_overlap_ranges=tile_ranges.view(-1, 2), overlap_to_point=overlap_to_point,
       image_size=args.image_size, config=replace(config, compute_visibility=True))
-
-    benchmarked('forward (visible)', forward_visible, profile=args.profile, iters=args.iters * 4)  
+    
+    if not args.skip_forward:
+      benchmarked('forward (visible)', forward_visible, profile=args.profile, iters=args.iters * 4)  
 
     gaussians.feature.requires_grad_(True)
     

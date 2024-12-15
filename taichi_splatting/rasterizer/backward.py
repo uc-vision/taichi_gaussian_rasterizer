@@ -18,6 +18,7 @@ def backward_kernel(config: RasterConfig,
   lib = get_library(dtype)
   Gaussian2D = lib.Gaussian2D
   vec2 = lib.vec2
+  vec1 = lib.vec1
 
   # Configure data types
   feature_vec = ti.types.vector(feature_size, dtype=dtype)
@@ -80,11 +81,11 @@ def backward_kernel(config: RasterConfig,
       num_point_groups = (tile_point_count + tile_area - 1) // tile_area
 
 
-
       # Open shared memory arrays
       tile_point = ti.simt.block.SharedArray((tile_area, ), dtype=Gaussian2D.vec)
       tile_point_id = ti.simt.block.SharedArray((tile_area, ), dtype=ti.i32)
       tile_feature = ti.simt.block.SharedArray((tile_area, ), dtype=feature_vec)
+      tile_weight = ti.simt.block.SharedArray((tile_area, ), dtype=vec1)
 
       tile_grad_point = (ti.simt.block.SharedArray((tile_area, ), dtype=Gaussian2D.vec)
                          if ti.static(points_requires_grad) else None)
@@ -116,6 +117,8 @@ def backward_kernel(config: RasterConfig,
           if ti.static(config.compute_point_heuristics):
             tile_point_heuristics[tile_idx] = vec2(0.0)
 
+          tile_weight[tile_idx] = 0.0
+
         ti.simt.block.sync()
 
         remaining_points = tile_point_count - point_group_id
@@ -130,6 +133,7 @@ def backward_kernel(config: RasterConfig,
           grad_point = Gaussian2D.vec(0.0)
           gaussian_point_heuristics = vec2(0.0)
           grad_feature = feature_vec(0.0)
+          gaussian_weight = vec1(0.0)
 
 
           mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
@@ -148,15 +152,14 @@ def backward_kernel(config: RasterConfig,
 
             # Accumulate total hits and subtract accumulated features
             total_weight += weight 
+            gaussian_weight += weight
             remaining_features -= feature * weight
 
             # Compute feature difference between point  and remaining features (from points behind this one)
             feature_diff = feature * T_i - remaining_features / (1.0 - alpha)
 
-
             alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()
-            
 
             # Compute gradients
             if ti.static(points_requires_grad):
@@ -185,9 +188,11 @@ def backward_kernel(config: RasterConfig,
             if ti.static(config.compute_point_heuristics):
               warp_add_vector(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
 
+            warp_add_vector(tile_weight[in_group_idx], gaussian_weight)
+
         ti.simt.block.sync()
 
-        if load_index < end_offset:
+        if load_index < end_offset and tile_weight[tile_idx].x > 0.0:
           point_idx = tile_point_id[tile_idx]
           
           # Write gradients to global memory

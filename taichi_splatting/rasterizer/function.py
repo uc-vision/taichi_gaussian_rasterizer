@@ -52,7 +52,6 @@ def render_function(config:RasterConfig,
       image_feature = torch.empty((*shape, features.shape[1]),
                                   dtype=dtype, device=features.device)
       image_alpha = torch.empty(shape, dtype=dtype, device=features.device)
-      image_hits = torch.zeros((*shape, config.samples), dtype=torch.uint32, device=features.device)
 
       if config.compute_point_heuristics:
         point_heuristics = torch.zeros((gaussians.shape[0], 2), dtype=dtype, device=features.device)
