@@ -78,6 +78,12 @@ def bench_rasterizer(args):
       
       benchmarked('query_visibility', query_vis, profile=args.profile, iters=args.iters * 4)  
 
+      forward_vis = partial(rasterize_with_tiles, gaussians2d=gaussians2d, features=gaussians.feature, 
+        tile_overlap_ranges=tile_ranges.view(-1, 2), overlap_to_point=overlap_to_point,
+        image_size=args.image_size, config=replace(config, compute_visibility=True))
+      
+      benchmarked('forward_vis', forward_vis, profile=args.profile, iters=args.iters * 4)  
+
     gaussians.feature.requires_grad_(True)
     
     def backward():

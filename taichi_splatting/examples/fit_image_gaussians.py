@@ -3,6 +3,7 @@ from functools import partial
 import math
 import os
 from pathlib import Path
+from typing import Tuple
 from beartype import beartype
 import cv2
 import argparse
@@ -94,7 +95,8 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
     
   h, w = ref_image.shape[:2]
 
-  point_heuristics = torch.zeros((params.batch_size[0], 2), device=params.position.device)
+  point_heuristics = torch.zeros((params.batch_size[0]), device=params.position.device)
+  visibility = torch.zeros((params.batch_size[0]), device=params.position.device)
 
   for i in range(epoch_size):
     opt.zero_grad()
@@ -109,6 +111,9 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
         image_size=(w, h), 
         config=config)
       
+
+      print(raster.visibility.shape, raster.point_heuristics.shape)
+
   
       scale = torch.exp(gaussians.log_scaling) / min(w, h)
       loss = (torch.nn.functional.l1_loss(raster.image, ref_image) 
@@ -119,8 +124,10 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
 
 
     check_finite(gaussians, 'gaussians')
-    visibility = raster.point_heuristics[:, 0]
+    visibility = raster.visibility
     visible = (visibility > 1e-8).nonzero().squeeze(1)
+
+    
 
 
     if isinstance(opt, VisibilityOptimizer):
@@ -136,10 +143,10 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
       log_scaling = torch.clamp(params.log_scaling.detach(), min=-5, max=5)
     )
 
-    # point_heuristics *= raster.visibility.clamp(1e-8).unsqueeze(1).sqrt()
-    point_heuristics +=  raster.point_heuristics
 
-  return raster.image, point_heuristics 
+    point_heuristics +=  raster.point_heuristics
+    visibility += raster.visibility
+  return raster.image, (visibility, point_heuristics) 
 
 
 def make_epochs(total_iters, first_epoch, max_epoch):
@@ -182,9 +189,8 @@ def randomize_n(t:torch.Tensor, n:int):
 
   return mask
   
-def find_split_prune(n, target, n_prune, point_heuristics):
-    prune_cost, densify_score = point_heuristics.unbind(dim=1)
-    
+def find_split_prune(n, target, n_prune, prune_cost, densify_score):
+  
     prune_mask = take_n(prune_cost, n_prune, descending=False)
 
     target_split = ((target - n) + n_prune) 
@@ -194,14 +200,17 @@ def find_split_prune(n, target, n_prune, point_heuristics):
     both = (split_mask & prune_mask)
     return split_mask ^ both, prune_mask ^ both
 
-def split_prune(params:ParameterClass, t, target, prune_rate, point_heuristics):
+def split_prune(params:ParameterClass, t, target, prune_rate, point_heuristics:Tuple[torch.Tensor, torch.Tensor]):
   n = params.batch_size[0]
+
+  visibility, point_heuristics = point_heuristics
 
   split_mask, prune_mask = find_split_prune(n = n, 
                   target = target,
                   n_prune=int(prune_rate * n * (1 - t)),
                   # n_prune=int(prune_rate * n),
-                  point_heuristics=point_heuristics)
+                  prune_cost=visibility,
+                  densify_score=point_heuristics)
 
   to_split = params[split_mask]
 
@@ -278,6 +287,7 @@ def main():
   
   config = RasterConfig(compute_point_heuristics=True,
                         compute_visibility=True,
+
                         tile_size=cmd_args.tile_size, 
                         blur_cov=0.3 if not cmd_args.antialias else 0.0,
                         antialias=cmd_args.antialias,

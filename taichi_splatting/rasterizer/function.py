@@ -70,17 +70,18 @@ def render_function(config: RasterConfig,
       image_alpha = torch.empty(shape, dtype=dtype, device=features.device)
 
       if config.compute_point_heuristics:
-        point_heuristics = torch.zeros((gaussians.shape[0], 2), dtype=dtype, device=features.device)
+        point_heuristics = torch.zeros((gaussians.shape[0]), dtype=dtype, device=features.device)
       else:
-        point_heuristics = torch.empty((0,2), dtype=dtype, device=features.device)
+        point_heuristics = torch.empty((0), dtype=dtype, device=features.device)
 
       if config.compute_visibility:
         visibility = torch.zeros((gaussians.shape[0]), dtype=dtype, device=features.device)
       else:
         visibility = torch.empty((0), dtype=dtype, device=features.device)
 
+
       forward(gaussians, features, tile_overlap_ranges, overlap_to_point,
-             image_feature, image_alpha)
+             image_feature, image_alpha, visibility)
 
       # Non differentiable parameters
       ctx.overlap_to_point = overlap_to_point
@@ -134,7 +135,7 @@ def rasterize_with_tiles(gaussians2d: torch.Tensor, features: torch.Tensor,
       RasterOut - namedtuple with fields:
         image: (H, W, F) torch tensor, where H, W are the image height and width, F is the features
         image_weight: (H, W) torch tensor, where H, W are the image height and width
-        point_heuristics: (N, 2) torch tensor, where N is the number of gaussians  
+        point_heuristics: (N, 1) torch tensor, where N is the number of gaussians  
         visibility: (N, ) torch tensor, where N is the number of gaussians
   """
   _module_function = render_function(config, gaussians2d.requires_grad,
@@ -163,7 +164,7 @@ def rasterize(gaussians2d: torch.Tensor, depth: torch.Tensor,
       RasterOut - namedtuple with fields:
         image: (H, W, F) torch tensor, where H, W are the image height and width, F is the features
         image_weight: (H, W) torch tensor, where H, W are the image height and width
-        point_heuristics: (N, 2) torch tensor, where N is the number of gaussians  
+        point_heuristics: (N, 1) torch tensor, where N is the number of gaussians  
         visibility: (N, ) torch tensor, where N is the number of gaussians
   """
   assert gaussians2d.shape[0] == depth.shape[0] == features.shape[0], \

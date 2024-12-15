@@ -70,7 +70,7 @@ def backward_kernel(config: RasterConfig,
       grad_features: ti.types.ndarray(feature_vec, ndim=1),          # [N, F] gradient of gaussian features
 
       # Output point heuristics
-      point_heuristics: ti.types.ndarray(vec2, ndim=1),              # [N, 2] point statistics
+      point_heuristics: ti.types.ndarray(dtype, ndim=1),              # [N] point densify heuristic
   ):
     camera_height, camera_width = grad_image_feature.shape
     tiles_wide = (camera_width + tile_size - 1) // tile_size 
@@ -93,7 +93,7 @@ def backward_kernel(config: RasterConfig,
       tile_grad_feature = (ti.simt.block.SharedArray((block_area,), dtype=feature_vec)
                           if ti.static(features_requires_grad) else None)
 
-      tile_point_heuristics = (ti.simt.block.SharedArray((block_area,), dtype=vec2) 
+      tile_point_heuristics = (ti.simt.block.SharedArray((block_area,), dtype=vec1) 
                               if ti.static(config.compute_point_heuristics) else None)
       
 
@@ -136,7 +136,7 @@ def backward_kernel(config: RasterConfig,
           if ti.static(features_requires_grad):
             tile_grad_feature[tile_idx] = feature_vec(0.0)
           if ti.static(config.compute_point_heuristics):
-            tile_point_heuristics[tile_idx] = vec2(0.0)
+            tile_point_heuristics[tile_idx] = vec1(0.0)
 
 
         ti.simt.block.sync()
@@ -149,7 +149,7 @@ def backward_kernel(config: RasterConfig,
             break
           
           grad_point = Gaussian2D.vec(0.0)
-          gaussian_point_heuristics = vec2(0.0)
+          gaussian_point_heuristics = vec1(0.0)
           grad_feature = feature_vec(0.0)
 
           mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
@@ -183,18 +183,18 @@ def backward_kernel(config: RasterConfig,
               alpha_grad_from_feature = feature_diff * grad_pixel_feature[i,:]
               alpha_grad = alpha_grad_from_feature.sum()
 
+              alpha_alpha_grad = point_alpha * alpha_grad
+              pos_grad = alpha_alpha_grad * dp_dmean
+
               # Accumulate gradients
               if ti.static(points_requires_grad):
-                g = point_alpha * alpha_grad
                 grad_point += Gaussian2D.to_vec(
-                  g * dp_dmean, g * dp_daxis, g * dp_dsigma, 
+                  pos_grad, alpha_alpha_grad * dp_daxis, 
+                  alpha_alpha_grad * dp_dsigma, 
                   gaussian_alpha * alpha_grad)
               
               if ti.static(config.compute_point_heuristics):
-                gaussian_point_heuristics += vec2(
-                  weight, 
-                  lib.l1_norm(alpha_grad * point_alpha * dp_dmean)
-                )
+                gaussian_point_heuristics += vec1(lib.l1_norm(pos_grad))
 
               if ti.static(features_requires_grad):
                 grad_feature += weight * grad_pixel_feature[i,:]
@@ -222,10 +222,12 @@ def backward_kernel(config: RasterConfig,
           
           if ti.static(points_requires_grad):
             ti.atomic_add(grad_points[point_idx], tile_grad_point[tile_idx])
+
           if ti.static(features_requires_grad):
             ti.atomic_add(grad_features[point_idx], tile_grad_feature[tile_idx])
+
           if ti.static(config.compute_point_heuristics):
-            ti.atomic_add(point_heuristics[point_idx], tile_point_heuristics[tile_idx])
+            ti.atomic_add(point_heuristics[point_idx], tile_point_heuristics[tile_idx][0])
 
 
   return _backward_kernel
