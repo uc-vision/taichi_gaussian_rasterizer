@@ -146,12 +146,26 @@ def backward_kernel(config: RasterConfig,
             weight = alpha * (1.0 - total_weight)
 
             # Accumulate total hits and subtract accumulated features
-            total_weight += weight            
-            remaining_features -= tile_feature[in_group_idx] * weight
+            prev_weight = total_weight
+            total_weight += weight      
+
+            feature = tile_feature[in_group_idx]      
+            remaining_features -= feature * weight
 
 
             # Compute feature difference between point  and remaining features (from points behind this one)
-            feature_diff = tile_feature[in_group_idx] *  - remaining_features / (1.0 - alpha + eps)
+            feature_diff = feature *  - remaining_features / (1.0 - alpha + eps)
+
+
+            if (pixel == ti.math.ivec2(200, 200)).all():
+                print("____________")
+                print(f"weight: {weight}")
+                print(f"alpha: {alpha}")
+                print(f"T_i: {total_weight} prev_ti: {prev_weight}")
+                print(f"feature: {feature}")
+                print(f"feature_diff: {feature_diff}")
+                print(f"grad_pixel_feature: {grad_pixel_feature}")
+
 
             alpha_grad_from_feature = feature_diff * grad_pixel_feature
             alpha_grad = alpha_grad_from_feature.sum()
