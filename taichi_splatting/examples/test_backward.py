@@ -22,20 +22,27 @@ def display_image(name, image):
 def main(args):
     TaichiQueue.init(ti.gpu)
 
-    
+    config = RasterConfig(
+        tile_size=args.tile_size,
+        pixel_stride=args.pixel_stride,
+    )
 
     torch.manual_seed(0)
     gaussians = random_2d_gaussians(args.n, (640, 480), scale_factor=10.0, alpha_range=(0.2, 0.3)).cuda()
 
     gaussians.requires_grad_(True)
-    rendering = render_gaussians(gaussians, (640, 480), RasterConfig(pixel_stride = (1,1)))
+    rendering = render_gaussians(gaussians, (640, 480), config)
     rendering.image.sum().backward()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=1)
+    parser.add_argument("--tile_size", type=int, default=16)
+    parser.add_argument("--pixel_stride", type=str, default="1,1")
     args = parser.parse_args()
+
+    args.pixel_stride = tuple([int(x) for x in args.pixel_stride.split(",")])
     
 
     try:

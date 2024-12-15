@@ -45,7 +45,8 @@ def backward_kernel(config: RasterConfig,
   # Select implementations based on dtype
   warp_add_vector = warp_add_vector_32 if dtype == ti.f32 else warp_add_vector_64
   pdf_with_grad = lib.gaussian_pdf_antialias_with_grad if config.antialias else lib.gaussian_pdf_with_grad
-  pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
+  # pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
+
 
   @ti.kernel
   def _backward_kernel(
@@ -73,6 +74,7 @@ def backward_kernel(config: RasterConfig,
     camera_height, camera_width = grad_image_feature.shape
     tiles_wide = (camera_width + tile_size - 1) // tile_size 
     tiles_high = (camera_height + tile_size - 1) // tile_size
+
 
     ti.loop_config(block_dim=(block_area))
     for tile_id, tile_idx in ti.ndrange(tiles_wide * tiles_high, block_area):
@@ -107,7 +109,7 @@ def backward_kernel(config: RasterConfig,
           grad_pixel_feature[i,:] = grad_image_feature[pixel.y, pixel.x]
           total_weight[i] = 0.0
 
-      pixel_tile_min_weight = total_weight.min()
+
 
 
       start_offset, end_offset = tile_overlap_ranges[tile_id]
@@ -116,7 +118,7 @@ def backward_kernel(config: RasterConfig,
 
       for point_group_id in range(num_point_groups):
         # Check if all pixels in tile are saturated
-        if ti.simt.block.sync_all_nonzero(ti.i32(pixel_tile_min_weight >= ti.static(config.saturate_threshold))):
+        if ti.simt.block.sync_all_nonzero(ti.i32(total_weight.min() >= ti.static(config.saturate_threshold))):
           break
 
         # Load points into shared memory
@@ -142,7 +144,7 @@ def backward_kernel(config: RasterConfig,
         
         # Process all points in group for each pixel in tile
         for in_group_idx in range(min(block_area, remaining_points)):
-          if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), ti.i32(pixel_tile_min_weight >= ti.static(config.saturate_threshold))):
+          if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), ti.i32(total_weight.min() >= ti.static(config.saturate_threshold))):
             break
           
           grad_point = Gaussian2D.vec(0.0)
@@ -154,47 +156,48 @@ def backward_kernel(config: RasterConfig,
 
           # Process all pixels in tile for current point
           for i, offset in ti.static(pixel_tile):
-            pixelf = ti.cast(pixel_base + ti.math.ivec2(offset), dtype) + 0.5
-            
-            gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
-            alpha = point_alpha * gaussian_alpha
-
             pixel_saturated = total_weight[i] >= ti.static(config.saturate_threshold)
-            pixel_grad = alpha > ti.static(config.alpha_threshold) and not pixel_saturated
 
-            if pixel_grad:
-              has_grad = True
-              alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
-              feature = tile_feature[in_group_idx]     
+            if not pixel_saturated:
 
-              T_i = (1.0 - total_weight[i])  # transmisivity (remaining weight)
-              weight = alpha * T_i           # pre-multiplied alpha 
+              pixelf = ti.cast(pixel_base + ti.math.ivec2(offset), dtype) + 0.5
+              gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
+              alpha = point_alpha * gaussian_alpha
 
-              # Update pixel state
-              total_weight[i] += weight 
-              pixel_tile_min_weight = ti.min(pixel_tile_min_weight, total_weight[i])
-              remaining_features[i,:] -= feature * weight
+              pixel_grad = alpha > ti.static(config.alpha_threshold) and not pixel_saturated
 
-              # Compute feature difference
-              feature_diff = feature * T_i - remaining_features[i,:] / (1.0 - alpha)
-              alpha_grad_from_feature = feature_diff * grad_pixel_feature[i,:]
-              alpha_grad = alpha_grad_from_feature.sum()
+              if pixel_grad:
+                has_grad = True
+                alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
+                feature = tile_feature[in_group_idx]     
 
-              # Accumulate gradients
-              if ti.static(points_requires_grad):
-                g = point_alpha * alpha_grad
-                grad_point += Gaussian2D.to_vec(
-                  g * dp_dmean, g * dp_daxis, g * dp_dsigma, 
-                  gaussian_alpha * alpha_grad)
-              
-              if ti.static(config.compute_point_heuristics):
-                gaussian_point_heuristics += vec2(
-                  weight, 
-                  lib.l1_norm(alpha_grad * point_alpha * dp_dmean)
-                )
+                T_i = (1.0 - total_weight[i])  # transmisivity (remaining weight)
+                weight = alpha * T_i           # pre-multiplied alpha 
 
-              if ti.static(features_requires_grad):
-                grad_feature += weight * grad_pixel_feature[i,:]
+                # Update pixel state
+                total_weight[i] += weight 
+                remaining_features[i,:] -= feature * weight
+
+                # Compute feature difference
+                feature_diff = feature * T_i - remaining_features[i,:] / (1.0 - alpha)
+                alpha_grad_from_feature = feature_diff * grad_pixel_feature[i,:]
+                alpha_grad = alpha_grad_from_feature.sum()
+
+                # Accumulate gradients
+                if ti.static(points_requires_grad):
+                  g = point_alpha * alpha_grad
+                  grad_point += Gaussian2D.to_vec(
+                    g * dp_dmean, g * dp_daxis, g * dp_dsigma, 
+                    gaussian_alpha * alpha_grad)
+                
+                if ti.static(config.compute_point_heuristics):
+                  gaussian_point_heuristics += vec2(
+                    weight, 
+                    lib.l1_norm(alpha_grad * point_alpha * dp_dmean)
+                  )
+
+                if ti.static(features_requires_grad):
+                  grad_feature += weight * grad_pixel_feature[i,:]
 
 
           # Accumulate gradients across warps if any pixel had gradients
@@ -209,7 +212,7 @@ def backward_kernel(config: RasterConfig,
         ti.simt.block.sync()
 
         # Write accumulated gradients to global memory
-        if load_index < end_offset:
+        if load_index < end_offset and tile_idx < block_area:
           point_idx = tile_point_id[tile_idx]
           
           if ti.static(points_requires_grad):
@@ -218,6 +221,7 @@ def backward_kernel(config: RasterConfig,
             ti.atomic_add(grad_features[point_idx], tile_grad_feature[tile_idx])
           if ti.static(config.compute_point_heuristics):
             ti.atomic_add(point_heuristics[point_idx], tile_point_heuristics[tile_idx])
+
 
   return _backward_kernel
 
