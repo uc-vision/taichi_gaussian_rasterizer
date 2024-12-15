@@ -204,8 +204,10 @@ def backward_kernel(config: RasterConfig,
           if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(has_grad)):
             if ti.static(points_requires_grad):
               warp_add_vector(tile_grad_point[in_group_idx], grad_point)
+
             if ti.static(features_requires_grad):
               warp_add_vector(tile_grad_feature[in_group_idx], grad_feature)
+              
             if ti.static(config.compute_point_heuristics):
               warp_add_vector(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
 

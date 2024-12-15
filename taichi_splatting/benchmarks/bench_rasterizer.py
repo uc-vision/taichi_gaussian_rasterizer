@@ -29,9 +29,13 @@ def parse_args(args=None):
   parser.add_argument('--antialias', action='store_true')
   parser.add_argument('--debug', action='store_true')
   parser.add_argument('--skip_forward', action='store_true')
+  parser.add_argument('--saturate_threshold', type=float, default=0.9999)
+  parser.add_argument('--alpha_threshold', type=float, default=1/255)
+  parser.add_argument('--pixel_stride', type=str, default='2,2')
 
   args = parser.parse_args(args)
   args.image_size = tuple(map(int, args.image_size.split(',')))
+  args.pixel_stride = tuple(map(int, args.pixel_stride.split(',')))
   return args
 
 
@@ -44,7 +48,8 @@ def bench_rasterizer(args):
     depth_range = (0.1, 100.)
     gaussians = random_2d_gaussians(args.n, args.image_size, num_channels=args.num_channels,
             scale_factor=args.scale_factor, alpha_range=(0.75, 1.0), depth_range=depth_range).to(args.device)
-    config = RasterConfig(tile_size=args.tile_size, antialias=args.antialias)
+    config = RasterConfig(tile_size=args.tile_size, antialias=args.antialias, pixel_stride=args.pixel_stride, 
+      saturate_threshold=args.saturate_threshold, alpha_threshold=args.alpha_threshold)
     
     gaussians2d = project_gaussians2d(gaussians)
 
