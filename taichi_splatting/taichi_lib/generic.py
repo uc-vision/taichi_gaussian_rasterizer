@@ -198,6 +198,7 @@ def make_library(dtype=ti.f32):
   @ti.func
   def isfin(x):
     return ~(ti.math.isinf(x) or ti.math.isnan(x))
+    
 
   #
   # Ellipsoid related functions, covariance, conic, etc.
