@@ -31,7 +31,8 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
 
       # Output image buffers
       image_feature: ti.types.ndarray(feature_vec, ndim=2),          # [H, W, F] output features
-      image_alpha: ti.types.ndarray(dtype, ndim=2),                 # [H, W] output alpha
+      image_alpha: ti.types.ndarray(dtype, ndim=2)                   # [H, W] output alpha
+
   ):
     camera_height, camera_width = image_feature.shape
     tiles_wide = (camera_width + tile_size - 1) // tile_size

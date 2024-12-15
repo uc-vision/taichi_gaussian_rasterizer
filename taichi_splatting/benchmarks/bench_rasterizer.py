@@ -72,7 +72,7 @@ def bench_rasterizer(args):
     if not args.skip_forward:
       benchmarked('forward', forward, profile=args.profile, iters=args.iters * 4)  
 
-      query_vis = partial(query_visibility, gaussians2d=gaussians2d, features=gaussians.feature, 
+      query_vis = partial(query_visibility, gaussians2d=gaussians2d, 
       tile_overlap_ranges=tile_ranges.view(-1, 2), overlap_to_point=overlap_to_point.to(args.device),
       image_size=args.image_size, config=config)
       
