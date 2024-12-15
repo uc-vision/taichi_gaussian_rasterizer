@@ -2,6 +2,7 @@
 
 import argparse
 from functools import partial
+from taichi_splatting.data_types import RasterConfig
 from taichi_splatting.misc.renderer2d import render_gaussians, split_gaussians2d, uniform_split_gaussians2d
 from taichi_splatting.taichi_queue import TaichiQueue
 from taichi_splatting.tests.random_data import random_2d_gaussians
@@ -21,11 +22,13 @@ def display_image(name, image):
 def main(args):
     TaichiQueue.init(ti.gpu)
 
+    
+
     torch.manual_seed(0)
     gaussians = random_2d_gaussians(args.n, (640, 480), scale_factor=10.0, alpha_range=(0.2, 0.3)).cuda()
 
     gaussians.requires_grad_(True)
-    rendering = render_gaussians(gaussians, (640, 480))
+    rendering = render_gaussians(gaussians, (640, 480), RasterConfig(pixel_stride = (1,1)))
     rendering.image.sum().backward()
 
 
