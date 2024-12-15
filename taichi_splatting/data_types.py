@@ -14,7 +14,7 @@ class RasterConfig:
   tile_size: int = 16
 
   # pixel tilin per thread in the backwards pass 
-  pixel_stride: Tuple[int, int] = (2, 2)
+  pixel_stride: Tuple[int, int] = (1, 1)
 
   margin_tiles: int = 3
 

@@ -20,13 +20,14 @@ def display_image(name, image):
 def main():
     TaichiQueue.init(ti.gpu)
 
-    torch.cuda.manual_seed(0)
-    while True: 
-      gaussians = random_2d_gaussians(5, (640, 480), scale_factor=1.0, alpha_range=(1.0, 1.0)).cuda()
+    torch.manual_seed(0)
+    gaussians = random_2d_gaussians(5, (640, 480), scale_factor=10.0, alpha_range=(0.2, 0.2)).cuda()
+
+    gaussians.requires_grad_(True)
+    rendering = render_gaussians(gaussians, (640, 480))
+    rendering.image.sum().backward()
 
 
-      rendering = render_gaussians(gaussians, (640, 480))
-      display_image('image', rendering.image)
       # splits = uniform_split_gaussians2d(gaussians, 2, random_axis=True)
 
       # rendering = render_gaussians(splits, (640, 480))

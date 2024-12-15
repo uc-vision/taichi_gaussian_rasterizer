@@ -27,6 +27,7 @@ def backward_kernel(config: RasterConfig,
   tile_size = config.tile_size
   tile_area = tile_size * tile_size
 
+
   thread_pixels = config.pixel_stride[0] * config.pixel_stride[1]
   block_area = tile_area // thread_pixels
   
@@ -112,6 +113,7 @@ def backward_kernel(config: RasterConfig,
           last_point_pixel[i] = image_last_valid[pixel.y, pixel.x]
           T_i[i] = 1.0 - image_alpha[pixel.y, pixel.x]
           grad_pixel_feature[i, :] = grad_image_feature[pixel.y, pixel.x]
+
           #pixel_feature[i, :] = image_feature[pixel.y, pixel.x]
 
       last_point_thread = last_point_pixel.max()
@@ -186,6 +188,8 @@ def backward_kernel(config: RasterConfig,
       
             if pixel_grad:
               has_grad = True
+
+              prev_ti = T_i[i]
               
               alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
               T_i[i] /= (1. - alpha)
@@ -193,10 +197,24 @@ def backward_kernel(config: RasterConfig,
               feature = tile_feature[in_group_idx]
               weight = alpha * T_i[i]
 
+
+
+
+
+
               grad_feature += weight * grad_pixel_feature[i, :]      
               feature_diff = (feature * T_i[i] - w_i[i, :] / (1. - alpha))
 
-              
+              if (pixel_base == ivec2(200, 200)).all():
+                print("____________")
+                print(f"weight: {weight}")
+                print(f"alpha: {alpha}")
+                print(f"T_i: {T_i[i]} prev_ti: {prev_ti}")
+                print(f"feature: {feature}")
+                print(f"feature_diff: {feature_diff}")
+                print(f"grad_pixel_feature: {grad_pixel_feature[i, :]}")
+
+
                 # \frac{dC}{da_i} = c_i T(i) - \frac{1}{1 - a_i} w_i
               alpha_grad_from_feature = feature_diff * grad_pixel_feature[i, :]
 
