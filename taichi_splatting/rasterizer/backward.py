@@ -163,9 +163,7 @@ def backward_kernel(config: RasterConfig,
             gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
             alpha = point_alpha * gaussian_alpha
 
-            pixel_grad = alpha > ti.static(config.alpha_threshold) and not pixel_saturated
-
-            if pixel_grad:
+            if alpha > ti.static(config.alpha_threshold) and not pixel_saturated:
               has_grad = True
               
               alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
@@ -199,7 +197,6 @@ def backward_kernel(config: RasterConfig,
               if ti.static(features_requires_grad):
                 grad_feature += weight * grad_pixel_feature[i,:]
 
-
           # Accumulate gradients across warps if any pixel had gradients
           if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(has_grad)):
             if ti.static(points_requires_grad):
@@ -211,12 +208,10 @@ def backward_kernel(config: RasterConfig,
             if ti.static(config.compute_point_heuristics):
               warp_add_vector(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
 
-
         ti.simt.block.sync()
 
         # Write accumulated gradients to global memory
         
-
         if (load_index < end_offset):
           point_idx = tile_point_id[tile_idx]
           

@@ -111,9 +111,6 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
         image_size=(w, h), 
         config=config)
       
-
-      print(raster.visibility.shape, raster.point_heuristics.shape)
-
   
       scale = torch.exp(gaussians.log_scaling) / min(w, h)
       loss = (torch.nn.functional.l1_loss(raster.image, ref_image) 
@@ -127,7 +124,6 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
     visibility = raster.visibility
     visible = (visibility > 1e-8).nonzero().squeeze(1)
 
-    
 
 
     if isinstance(opt, VisibilityOptimizer):
@@ -143,9 +139,9 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
       log_scaling = torch.clamp(params.log_scaling.detach(), min=-5, max=5)
     )
 
-
     point_heuristics +=  raster.point_heuristics
     visibility += raster.visibility
+
   return raster.image, (visibility, point_heuristics) 
 
 

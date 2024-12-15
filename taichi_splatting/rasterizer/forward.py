@@ -92,30 +92,32 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
               ti.i32(total_weight >= ti.static(config.saturate_threshold))):
             break
 
-          gaussian_weight = vec1(0.0)
+          weight = 0.0
           mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
 
           gaussian_alpha = pdf(pixelf, mean, axis, sigma)
           alpha = point_alpha * gaussian_alpha
           alpha = ti.min(alpha, ti.static(config.clamp_max_alpha))
 
-          if alpha > config.alpha_threshold:
+          if alpha > ti.static(config.alpha_threshold):
             weight = alpha * (1.0 - total_weight)
 
             accum_features += tile_feature[in_group_idx] * weight
             total_weight += weight
 
-          if ti.static(config.compute_visibility):
-            if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(gaussian_weight[0] > 0.0)):
-              # Accumulate visibility in shared memory across the warp
-              warp_add_vector(tile_visibility[in_group_idx], gaussian_weight)
+          # if ti.static(config.compute_visibility):
+          #   if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(alpha > ti.static(config.alpha_threshold))):
+          #     # Accumulate visibility in shared memory across the warp
+          #     weight_vec = vec1(weight)
+          #     warp_add_vector(tile_visibility[in_group_idx], weight_vec)
 
 
-        if ti.static(config.compute_visibility):
-          if load_index < end_offset:
-            ti.simt.block.sync()
-            point_idx = tile_point_id[tile_idx]
-            ti.atomic_add(visibility[point_idx], tile_visibility[tile_idx][0])
+        # if ti.static(config.compute_visibility):
+        #   ti.simt.block.sync()  
+
+        #   if load_index < end_offset:
+        #     point_idx = tile_point_id[tile_idx] 
+        #     ti.atomic_add(visibility[point_idx], tile_visibility[tile_idx][0])
 
       # Write final results
       if in_bounds:
@@ -218,7 +220,7 @@ def query_visibility_kernel(config: RasterConfig, dtype=ti.f32):
         ti.simt.block.sync()
 
         # Write visibility to global memory
-        if load_index < end_offset and tile_visibility[tile_idx][0] > 0.0:
+        if load_index < end_offset:
           point_idx = tile_point_id[tile_idx]
           ti.atomic_add(point_visibility[point_idx], tile_visibility[tile_idx][0])
 
