@@ -96,7 +96,6 @@ def backward_kernel(config: RasterConfig,
       tile_point_heuristics = (ti.simt.block.SharedArray((block_area,), dtype=vec2) 
                               if ti.static(config.compute_point_heuristics) else None)
       
-      tile_weight = ti.simt.block.SharedArray((block_area,), dtype=vec1)
 
       # Per-thread state for each pixel in tile
       grad_pixel_feature = thread_features(0.)
@@ -139,7 +138,6 @@ def backward_kernel(config: RasterConfig,
           if ti.static(config.compute_point_heuristics):
             tile_point_heuristics[tile_idx] = vec2(0.0)
 
-          tile_weight[tile_idx] = 0.0
 
         ti.simt.block.sync()
 
@@ -153,7 +151,6 @@ def backward_kernel(config: RasterConfig,
           grad_point = Gaussian2D.vec(0.0)
           gaussian_point_heuristics = vec2(0.0)
           grad_feature = feature_vec(0.0)
-          gaussian_weight = vec1(0.0)
 
           mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
           has_grad = False
@@ -178,9 +175,7 @@ def backward_kernel(config: RasterConfig,
               weight = alpha * T_i           # pre-multiplied alpha 
 
               # Update pixel state
-              total_weight[i] += weight 
-              gaussian_weight += weight
-              
+              total_weight[i] += weight               
               remaining_features[i,:] -= feature * weight
 
               # Compute feature difference
@@ -216,14 +211,13 @@ def backward_kernel(config: RasterConfig,
             if ti.static(config.compute_point_heuristics):
               warp_add_vector(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
 
-            warp_add_vector(tile_weight[in_group_idx], gaussian_weight)
 
         ti.simt.block.sync()
 
         # Write accumulated gradients to global memory
         
 
-        if (load_index < end_offset) and (tile_weight[tile_idx].x > 0.0):
+        if (load_index < end_offset):
           point_idx = tile_point_id[tile_idx]
           
           if ti.static(points_requires_grad):
