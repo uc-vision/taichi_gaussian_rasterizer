@@ -41,9 +41,10 @@ def parse_args():
 
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--show', action='store_true')
-
+    parser.add_argument('--eval', action='store_false', help = "enable the evaluation phase during training default at every 5 images, can change the number with --test x")
+    parser.add_argument('--test', type=int, default=5, help = "run the test phase at every x images default 5")
     parser.add_argument('--profile', action='store_true')
-
+    parser.add_argument('--method', type=str, default="mlp", help = "default mlp, other option mlp_unet"),
     args = parser.parse_args()
     return args
 

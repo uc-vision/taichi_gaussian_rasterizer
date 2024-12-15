@@ -1,22 +1,4 @@
-# for epoch in tqdm.tqdm(range(epochs)):
-#       with torch.enable_grad():
 
-#         optimizer_opt.zero_grad()
-
-#         y = mixer(x, gaussians, image_size, config)
-#         c = x-y
-
-#         rendered_image = mixer.render(c, gaussians, image_size).squeeze(0)
-
-#         loss = criterion(rendered_image.permute(1,2, 0), ref_image)
-
-#         loss.backward()
-#         if epoch % 10 == 0:  # Print every 10 epochs
-#           print(f"Epoch [{epoch}/{epochs}], Loss: {loss.item():.6f}")
-
-#       optimizer_opt.step()
-#       x = c.detach()
-#       # y.sum().backward()
 import os
 import matplotlib.pyplot as plt
 from functools import partial
