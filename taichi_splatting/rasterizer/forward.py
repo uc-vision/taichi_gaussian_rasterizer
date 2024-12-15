@@ -25,7 +25,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
         tile_overlap_ranges: ti.types.ndarray(ti.math.ivec2, ndim=1),
         overlap_to_point: ti.types.ndarray(ti.i32, ndim=1),
         image_feature: ti.types.ndarray(feature_vec, ndim=2),
-        image_alpha: ti.types.ndarray(ti.f32, ndim=2),
+        image_alpha: ti.types.ndarray(dtype, ndim=2),
     ):
         camera_height, camera_width = image_feature.shape
         tiles_wide = (camera_width + tile_size - 1) // tile_size 
@@ -41,7 +41,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
             in_bounds = pixel.y < camera_height and pixel.x < camera_width
 
             accum_features = feature_vec(0.0)
-            total_weight = 0.0 if in_bounds else 1.0
+            total_weight = dtype(0.0) if in_bounds else dtype(1.0)
 
             start_offset, end_offset = tile_overlap_ranges[tile_id]
             tile_point_count = end_offset - start_offset
