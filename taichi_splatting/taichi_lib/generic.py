@@ -336,6 +336,24 @@ def make_library(dtype=ti.f32):
     return p, dp_dmean, dp_daxis, dp_dsigma
   
 
+  @ti.func
+  def batch_pdf_with_grad(xy: ti.template(), mean: vec2, axis: vec2, sigma: vec2):
+    d = xy - mean
+
+    tx = d.dot(axis) / sigma.x
+    ty = d.dot(perp(axis)) / sigma.y
+
+    tx2, ty2 = tx**2, ty**2
+    p = ti.exp(-0.5 * (tx2 + ty2))
+
+    dp_dsigma = vec2(tx2, ty2) * p / sigma
+    tx_s, ty_s = tx / sigma.x, ty / sigma.y
+
+    dp_daxis = p * (tx_s * -d + ty_s * perp(d))
+    dp_dmean = p * (tx_s * axis + ty_s * perp(axis))
+
+    return p, dp_dmean, dp_daxis, dp_dsigma
+
 
   @ti.func
   def S_sig(x, sigma=1):

@@ -41,10 +41,11 @@ def backward_kernel(config: RasterConfig,
   # types for each thread to keep state in it's tile of pixels
   thread_features = ti.types.matrix(thread_pixels, feature_size, dtype=dtype)
   thread_vector = ti.types.vector(thread_pixels, dtype=dtype)
+  thread_vec2 = ti.types.matrix(thread_pixels, 2, dtype=ti.f32)
 
   # Select implementations based on dtype
   warp_add_vector = warp_add_vector_32 if dtype == ti.f32 else warp_add_vector_64
-  pdf_with_grad = lib.gaussian_pdf_antialias_with_grad if config.antialias else lib.gaussian_pdf_with_grad
+  pdf_with_grad = lib.gaussian_pdf_antialias_with_grad if config.antialias else lib.batch_pdf_with_grad
   # pdf = lib.gaussian_pdf_antialias if config.antialias else lib.gaussian_pdf
 
 
@@ -99,6 +100,7 @@ def backward_kernel(config: RasterConfig,
       grad_pixel_feature = thread_features(0.)
       remaining_features = thread_features(0.)
       total_weight = thread_vector(1.0)
+      pixelf = thread_vec2(0.0)
 
       # Initialize per-pixel state
       for i, offset in ti.static(pixel_tile):
@@ -108,6 +110,7 @@ def backward_kernel(config: RasterConfig,
           remaining_features[i,:] = image_feature[pixel.y, pixel.x]
           grad_pixel_feature[i,:] = grad_image_feature[pixel.y, pixel.x]
           total_weight[i] = 0.0
+          pixelf[i, :] = ti.cast(pixel, dtype) + 0.5
 
 
 
@@ -155,13 +158,12 @@ def backward_kernel(config: RasterConfig,
           has_grad = False
 
           # Process all pixels in tile for current point
-          for i, offset in ti.static(pixel_tile):
+          for i in ti.static(range(thread_pixels)):
             pixel_saturated = total_weight[i] >= ti.static(config.saturate_threshold)
 
             if not pixel_saturated:
-
-              pixelf = ti.cast(pixel_base + ti.math.ivec2(offset), dtype) + 0.5
-              gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf, mean, axis, sigma)
+              # pixelf = ti.cast(pixel_base + ti.math.ivec2(offset), dtype) + 0.5
+              gaussian_alpha, dp_dmean, dp_daxis, dp_dsigma = pdf_with_grad(pixelf[i, :], mean, axis, sigma)
               alpha = point_alpha * gaussian_alpha
 
               pixel_grad = alpha > ti.static(config.alpha_threshold) and not pixel_saturated
@@ -204,10 +206,8 @@ def backward_kernel(config: RasterConfig,
           if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(has_grad)):
             if ti.static(points_requires_grad):
               warp_add_vector(tile_grad_point[in_group_idx], grad_point)
-
             if ti.static(features_requires_grad):
               warp_add_vector(tile_grad_feature[in_group_idx], grad_feature)
-              
             if ti.static(config.compute_point_heuristics):
               warp_add_vector(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
 
