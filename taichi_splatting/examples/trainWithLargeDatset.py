@@ -103,19 +103,7 @@ def main():
                                         alpha_range=(0.5, 1.0),
                                         scale_factor=1.0).to(
                                             torch.device('cuda:0'))
-        # channels = sum([np.prod(v.shape[1:], dtype=int) for k, v in gaussians.items()])
-
-        # # Create the MLP
-        # optimizer = mlp(inputs=channels, outputs=channels,
-        #                 hidden_channels=[128, 128, 128],
-        #                 activation=nn.ReLU,
-        #                 norm=partial(nn.LayerNorm, elementwise_affine=False),
-        #                 output_scale=1e-12
-        #                 )
-        # optimizer.to(device=device)
-        # optimizer = torch.compile(optimizer)
-        # optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.0001)
-
+   
         ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32,
                                                    device=device) / 255
         # config = RasterConfig()
@@ -146,8 +134,7 @@ def main():
             metrics['CPSNR'] = psnr(ref_image, image).item()
             metrics['n'] = gaussians.batch_size[0]
             metrics.update(train_metrics)
-            # for key, value in metrics.items():
-            #   print(f"{key}: {value}")
+   
 
             for k, v in metrics.items():
                 if isinstance(v, float):
@@ -165,16 +152,7 @@ def main():
                         metrics_history,
                         epoch_size,
                         filename="checkpoint.pth")
-    # Plot training results
-    # iterations, cpsnr_values = zip(*metrics_history)
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(iterations, cpsnr_values, label="CPSNR")
-    # plt.xlabel("Iteration")
-    # plt.ylabel("CPSNR")
-    # plt.title("Training Progress on Dataset")
-    # plt.legend()
-    # plt.grid(True)
-    # plt.show()
+
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from gaussian_mixer import GaussianMixer
 from taichi_splatting.tests.random_data import random_2d_gaussians
 from taichi_splatting.taichi_queue import TaichiQueue
 def test_render_and_sample():
+    """This is a test to evaluate the gaussian mixer sample position feature """
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     TaichiQueue.init(arch=ti.cuda,
                      log_level=ti.INFO,

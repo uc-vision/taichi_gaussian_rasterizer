@@ -38,7 +38,7 @@ def parse_args():
 
     parser.add_argument('--opacity_reg', type=float, default=0.0000)
     parser.add_argument('--scale_reg', type=float, default=10.0)
-
+    parser.add_argument('--batch', type=int,default=1, help = "enable the batch size training default is 1")
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--show', action='store_true')
     parser.add_argument('--eval', action='store_false', help = "enable the evaluation phase during training default at every 5 images, can change the number with --test x")
@@ -190,21 +190,6 @@ class Trainer:
         psnr_value = psnr(self.ref_image, raster.image).item()
         print(f"Test PSNR: {psnr_value:.4f}")
         return raster.image
-
-    # def test(self, gaussians,step_size=0.01,epoch_size=100):
-    #   for i in range(epoch_size):
-    #     grad = self.get_gradients(gaussians)
-    #     check_finite(grad, "grad")
-    #     # self.mlp_opt.zero_grad()
-
-    #     inputs = flatten_tensorclass(gaussians)
-
-    #     with torch.enable_grad():
-    #       step = self.optimizer_mlp(inputs)
-    #       step = split_tensorclass(gaussians, step)
-    #     # self.mlp_opt.step()
-    #     gaussians = gaussians - step * step_size
-    #   return gaussians
 
     def train_epoch(self, gaussians, step_size=0.01, epoch_size=100):
         metrics = []
