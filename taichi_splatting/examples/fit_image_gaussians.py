@@ -19,7 +19,7 @@ from taichi_splatting.taichi_queue import TaichiQueue
 from taichi_splatting.tests.random_data import random_2d_gaussians
 
 from taichi_splatting.torch_lib.util import check_finite
-
+PYTORCH_CUDA_ALLOC_CONF=True
 torch.set_float32_matmul_precision('high')
 
 
@@ -60,7 +60,7 @@ def lerp(t, a, b):
 def display_image(name, image):
     image = (image.clamp(0, 1) * 255).to(torch.uint8)
     image = image.cpu().numpy()
-
+    image = cv2.resize(image,(400*2,300*2))
     cv2.imshow(name, image)
     cv2.waitKey(1)
 
@@ -162,7 +162,7 @@ class Trainer:
     def get_gradients(self, gaussians):
         gaussians = gaussians.clone()
         gaussians.requires_grad_(True)
-        self.render_step(gaussians)
+        metrics = self.render_step(gaussians)
         grad = gaussians.grad
 
         mean_abs_grad = grad.abs().mean(dim=0)
@@ -172,33 +172,35 @@ class Trainer:
             self.running_scales = lerp(0.999, self.running_scales,
                                        mean_abs_grad)
 
-        return grad * 1e7
+        return grad * 1e7,metrics
 
     def test(self, gaussians):
         """Run inference using the trained model."""
-        with torch.no_grad():
+        metrics = []
+        for i in range(epoch_size):
+            with torch.no_grad():
 
-            grad = self.get_gradients(gaussians)
-            check_finite(grad, "grad")
+                grad,metrics = self.get_gradients(gaussians)
+                check_finite(grad, "grad")
 
-            inputs = flatten_tensorclass(grad)
-
-            with torch.enable_grad():
-                step = self.optimizer_mlp(inputs)
-                step = split_tensorclass(gaussians, step)
-        raster = self.render(gaussians - step)
-        psnr_value = psnr(self.ref_image, raster.image).item()
-        print(f"Test PSNR: {psnr_value:.4f}")
-        return raster.image
+                inputs = flatten_tensorclass(grad)
+                # metrics.append(metric)
+                with torch.no_grad():
+                    step = self.optimizer_mlp(inputs)
+                    step = split_tensorclass(gaussians, step)
+                    metrics.append(metric)
+                gaussians = gaussians - step * step_size
+        # raster = self.render(gaussians - step)
+        # psnr_value = psnr(self.ref_image, raster.image).item()
+        # print(f"Test PSNR: {psnr_value:.4f}")
+        return gaussians, mean_dicts(metrics)
 
     def train_epoch(self, gaussians, step_size=0.01, epoch_size=100):
         metrics = []
         for i in range(epoch_size):
-
-            grad = self.get_gradients(gaussians)
-            check_finite(grad, "grad")
             self.mlp_opt.zero_grad()
-
+            grad,_ = self.get_gradients(gaussians)
+            check_finite(grad, "grad")
             inputs = flatten_tensorclass(grad)
 
             with torch.enable_grad():
@@ -207,9 +209,9 @@ class Trainer:
 
                 metrics.append(self.render_step(gaussians - step))
 
-            self.mlp_opt.step()
+            
             gaussians = gaussians - step * step_size
-
+            self.mlp_opt.step()
         return gaussians, mean_dicts(metrics)
 
 

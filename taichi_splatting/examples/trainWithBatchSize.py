@@ -60,7 +60,7 @@ def save_batch_checkpoint(optimizer,
     }
     torch.save(checkpoint, filename)
 
-def element_sizes(t):
+def element_sizes_batch(t):
     """ Get non batch sizes from a tensorclass"""
 
     return {k: v.shape[2:] for k, v in t.items()}
@@ -69,7 +69,7 @@ def element_sizes(t):
 def split_tensorclass(t, flat_tensor: torch.Tensor):
 
     step = []
-    sizes = element_sizes(t)
+    sizes = element_sizes_batch(t)
 
 
     splits = [np.prod(s) for s in sizes.values()]
@@ -225,8 +225,8 @@ class Trainer:
             with torch.enable_grad():
                 inputs = inputs.unsqueeze(1)
                 step = self.optimizer_mlp(inputs)
-                finite_mask = torch.isfinite(step)
-                step = torch.where(finite_mask, step, torch.zeros_like(step))
+                # finite_mask = torch.isfinite(step)
+                # step = torch.where(finite_mask, step, torch.zeros_like(step))
                 step = split_tensorclass(gaussians_batch, step)
 
                 metrics.append(self.render_step(gaussians_batch - step))
@@ -262,6 +262,7 @@ class Trainer:
 
 
 def main():
+    torch.set_printoptions(precision=4, sci_mode=True)
     cmd_args = parse_args()
     device = torch.device("cuda:0")
 
@@ -310,7 +311,7 @@ def main():
     optimizer.to(device=device)
     optimizer = torch.compile(optimizer)
     optimizer_opt = torch.optim.Adam(
-        optimizer.parameters(), lr=0.001)  # mlp = 0.001  transformer = 0.01
+        optimizer.parameters(), lr=0.00001)  # mlp = 0.001  transformer = 0.01
     epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
     config = RasterConfig()
     trainer = Trainer(optimizer,
@@ -331,7 +332,7 @@ def main():
 
         for epoch_size in epochs:
             metrics = {}
-            step_size = log_lerp(min(iteration / 100000., 1.0), 0.1, 1.0)
+            step_size = log_lerp(min(iteration / 1000., 1.0), 0.1, 1.0)
             gaussians_batch, train_metrics = trainer.train_epoch(
                 gaussians_batch, step_size, epoch_size)
             iteration += epoch_size
