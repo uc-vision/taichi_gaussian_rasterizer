@@ -44,7 +44,7 @@ def test_visibility(debug=False, max_n=10000):
       gaussians = gaussians.to(dtype=torch.float64)
       gaussians.feature.requires_grad_(True)
 
-      config = RasterConfig(compute_visibility=True, compute_point_heuristics=True)
+      config = RasterConfig(compute_visibility=True, compute_split_heuristic=True)
 
       gaussians2d = project_gaussians2d(gaussians)
       raster = rasterize(gaussians2d=gaussians2d, 

@@ -70,7 +70,7 @@ def backward_kernel(config: RasterConfig,
       grad_features: ti.types.ndarray(feature_vec, ndim=1),          # [N, F] gradient of gaussian features
 
       # Output point heuristics
-      point_heuristics: ti.types.ndarray(dtype, ndim=1),              # [N] point densify heuristic
+      split_heuristic: ti.types.ndarray(dtype, ndim=1),              # [N] point densify heuristic
   ):
     camera_height, camera_width = grad_image_feature.shape
     tiles_wide = (camera_width + tile_size - 1) // tile_size 
@@ -94,7 +94,7 @@ def backward_kernel(config: RasterConfig,
                           if ti.static(features_requires_grad) else None)
 
       tile_point_heuristics = (ti.simt.block.SharedArray((block_area,), dtype=vec1) 
-                              if ti.static(config.compute_point_heuristics) else None)
+                              if ti.static(config.compute_split_heuristic) else None)
       
 
       # Per-thread state for each pixel in tile
@@ -135,7 +135,7 @@ def backward_kernel(config: RasterConfig,
             tile_grad_point[tile_idx] = Gaussian2D.vec(0.0)
           if ti.static(features_requires_grad):
             tile_grad_feature[tile_idx] = feature_vec(0.0)
-          if ti.static(config.compute_point_heuristics):
+          if ti.static(config.compute_split_heuristic):
             tile_point_heuristics[tile_idx] = vec1(0.0)
 
 
@@ -191,7 +191,7 @@ def backward_kernel(config: RasterConfig,
                   alpha_alpha_grad * dp_dsigma, 
                   gaussian_alpha * alpha_grad)
               
-              if ti.static(config.compute_point_heuristics):
+              if ti.static(config.compute_split_heuristic):
                 gaussian_point_heuristics += vec1(lib.l1_norm(pos_grad))
 
               if ti.static(features_requires_grad):
@@ -205,7 +205,7 @@ def backward_kernel(config: RasterConfig,
             if ti.static(features_requires_grad):
               warp_add_vector(tile_grad_feature[in_group_idx], grad_feature)
 
-            if ti.static(config.compute_point_heuristics):
+            if ti.static(config.compute_split_heuristic):
               warp_add_vector(tile_point_heuristics[in_group_idx], gaussian_point_heuristics)
 
         ti.simt.block.sync()
@@ -221,8 +221,8 @@ def backward_kernel(config: RasterConfig,
           if ti.static(features_requires_grad):
             ti.atomic_add(grad_features[point_idx], tile_grad_feature[tile_idx])
 
-          if ti.static(config.compute_point_heuristics):
-            ti.atomic_add(point_heuristics[point_idx], tile_point_heuristics[tile_idx][0])
+          if ti.static(config.compute_split_heuristic):
+            ti.atomic_add(split_heuristic[point_idx], tile_point_heuristics[tile_idx][0])
 
 
   return _backward_kernel

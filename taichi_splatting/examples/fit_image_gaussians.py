@@ -45,7 +45,7 @@ def parse_args():
   parser.add_argument('--epoch', type=int, default=4, help='base epoch size (increases with t)')
   parser.add_argument('--max_epoch', type=int, default=16)
 
-  parser.add_argument('--prune_rate', type=float, default=0.04, help='Rate of pruning proportional to number of points')
+  parser.add_argument('--prune_rate', type=float, default=0.05, help='Rate of pruning proportional to number of points')
   parser.add_argument('--opacity_reg', type=float, default=0.0001)
   parser.add_argument('--scale_reg', type=float, default=10.0)
 
@@ -95,7 +95,7 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
     
   h, w = ref_image.shape[:2]
 
-  point_heuristics = torch.zeros((params.batch_size[0]), device=params.position.device)
+  split_heuristic = torch.zeros((params.batch_size[0]), device=params.position.device)
   visibility = torch.zeros((params.batch_size[0]), device=params.position.device)
 
   for i in range(epoch_size):
@@ -139,10 +139,10 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
       log_scaling = torch.clamp(params.log_scaling.detach(), min=-5, max=5)
     )
 
-    point_heuristics +=  raster.point_heuristics
+    split_heuristic +=  raster.split_heuristic
     visibility += raster.visibility
 
-  return raster.image, (visibility, point_heuristics) 
+  return raster.image, (visibility, split_heuristic) 
 
 
 def make_epochs(total_iters, first_epoch, max_epoch):
@@ -186,27 +186,28 @@ def randomize_n(t:torch.Tensor, n:int):
   return mask
   
 def find_split_prune(n, target, n_prune, prune_cost, densify_score):
-  
     prune_mask = take_n(prune_cost, n_prune, descending=False)
+    n_prune = prune_mask.sum().item()
 
-    target_split = ((target - n) + n_prune) 
+    target_split = max(0, (target - n) + n_prune)
+    
     # split_mask = randomize_n(densify_score, min(target_split, n))
     split_mask = take_n(densify_score, target_split, descending=True)
 
     both = (split_mask & prune_mask)
     return split_mask ^ both, prune_mask ^ both
 
-def split_prune(params:ParameterClass, t, target, prune_rate, point_heuristics:Tuple[torch.Tensor, torch.Tensor]):
+def split_prune(params:ParameterClass, t, target, prune_rate, split_heuristic:Tuple[torch.Tensor, torch.Tensor]):
   n = params.batch_size[0]
 
-  visibility, point_heuristics = point_heuristics
+  visibility, split_heuristic = split_heuristic
 
   split_mask, prune_mask = find_split_prune(n = n, 
                   target = target,
                   n_prune=int(prune_rate * n * (1 - t)),
                   # n_prune=int(prune_rate * n),
                   prune_cost=visibility,
-                  densify_score=point_heuristics)
+                  densify_score=split_heuristic)
 
   to_split = params[split_mask]
 
@@ -264,7 +265,7 @@ def main():
     log_scaling=dict(lr=0.05),
 
     rotation=dict(lr=1.0),
-    alpha_logit=dict(lr=0.1),
+    alpha_logit=dict(lr=0.05),
     feature=dict(lr=0.025, type='vector')
   )
   
@@ -281,7 +282,7 @@ def main():
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255
   
-  config = RasterConfig(compute_point_heuristics=True,
+  config = RasterConfig(compute_split_heuristic=True,
                         compute_visibility=True,
 
                         tile_size=cmd_args.tile_size, 
@@ -294,11 +295,11 @@ def main():
 
   def timed_epoch(*args, **kwargs):
     start = time.time()
-    image, point_heuristics = train_epoch(*args, **kwargs)
+    image, split_heuristic = train_epoch(*args, **kwargs)
     torch.cuda.synchronize()
     end = time.time()
 
-    return image, point_heuristics, end - start
+    return image, split_heuristic, end - start
 
 
   train = with_benchmark(timed_epoch) if cmd_args.profile else timed_epoch
@@ -312,7 +313,7 @@ def main():
     params.set_learning_rate(position = log_lerp(t, *lr_range))
     metrics = {}
 
-    image, point_heuristics, epoch_time = train(params.optimizer, params, ref_image, 
+    image, split_heuristic, epoch_time = train(params.optimizer, params, ref_image, 
                                       epoch_size=epoch_size, config=config, 
                                       opacity_reg=cmd_args.opacity_reg,
                                       scale_reg=cmd_args.scale_reg)
@@ -338,7 +339,7 @@ def main():
     if cmd_args.target and iteration + epoch_size < cmd_args.iters:
       t_points = min(math.pow(t * 2, 0.5), 1.0)
       target = math.ceil(params.batch_size[0] * (1 - t_points) + t_points * cmd_args.target)
-      params, prune_metrics = split_prune(params, t, target, cmd_args.prune_rate, point_heuristics)
+      params, prune_metrics = split_prune(params, t, target, cmd_args.prune_rate, split_heuristic)
       metrics.update(prune_metrics)
 
     for k, v in metrics.items():
