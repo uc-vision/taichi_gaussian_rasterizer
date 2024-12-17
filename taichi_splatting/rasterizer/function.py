@@ -1,4 +1,5 @@
 
+from dataclasses import replace
 from functools import cache
 from typing import Optional
 from taichi_splatting.mapper.tile_mapper import map_to_tiles
@@ -27,7 +28,10 @@ def render_function(config:RasterConfig,
                     features_requires_grad:bool, 
                     feature_size:int,
                     dtype=torch.float32):
-  
+
+
+  # if normalise_gradient is set, then compute_visibility must be set
+  config = replace(config, compute_visibility=config.compute_visibility or config.normalise_gradient)
     
   forward = forward_kernel(config, feature_size=feature_size, dtype=torch_taichi[dtype])
   backward = backward_kernel(config, points_requires_grad,
@@ -36,7 +40,6 @@ def render_function(config:RasterConfig,
   
   forward = queued(forward)
   backward = queued(backward)
-
 
   class _module_function(torch.autograd.Function):
     @staticmethod
@@ -96,6 +99,11 @@ def render_function(config:RasterConfig,
           ctx.image_alpha, ctx.image_last_valid,
           grad_image_feature.contiguous(),
           grad_gaussians, grad_features, ctx.point_heuristics)
+        
+
+        if config.normalise_gradient:
+          grad_gaussians = grad_gaussians / ctx.visibility.unsqueeze(1)
+          grad_features = grad_features / ctx.visibility.unsqueeze(1)
 
 
         return grad_gaussians, grad_features, None, None, None, None

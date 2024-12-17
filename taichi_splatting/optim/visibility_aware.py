@@ -97,9 +97,7 @@ class VisibilityOptimizer(torch.optim.Optimizer):
         continue
 
       assert group.num_points == n, f"param shape {group.num_points} != {n}"
-      group = replace(group, grad=set_indexes(group.grad, 
-                        group.grad[indexes] / visibility.unsqueeze(1), 
-                          indexes))
+      group = replace(group, grad=set_indexes(group.grad, group.grad[indexes], indexes))
 
       lr_step = weighted_step(group, weight, indexes, total_weight, self.kernels, basis)
 
