@@ -27,7 +27,8 @@ def render_function(config:RasterConfig,
                     points_requires_grad:bool,
                     features_requires_grad:bool, 
                     feature_size:int,
-                    dtype=torch.float32):
+                    dtype=torch.float32,
+                    eps:float=1e-8):
 
 
   # if normalise_gradient is set, then compute_visibility must be set
@@ -102,8 +103,9 @@ def render_function(config:RasterConfig,
         
 
         if config.normalise_gradient:
-          grad_gaussians = grad_gaussians / ctx.visibility.unsqueeze(1)
-          grad_features = grad_features / ctx.visibility.unsqueeze(1)
+          vis = (ctx.visibility + eps).unsqueeze(1)
+          grad_gaussians = grad_gaussians / vis
+          grad_features = grad_features / vis
 
 
         return grad_gaussians, grad_features, None, None, None, None

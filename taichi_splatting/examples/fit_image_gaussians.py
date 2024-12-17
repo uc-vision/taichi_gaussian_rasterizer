@@ -256,10 +256,10 @@ def main():
   
   parameter_groups = dict(
     position=dict(lr=lr_range[0], type='local_vector'),
-    log_scaling=dict(lr=0.05),
+    log_scaling=dict(lr=0.5),
 
     rotation=dict(lr=1.0),
-    alpha_logit=dict(lr=0.1),
+    alpha_logit=dict(lr=1.0),
     feature=dict(lr=0.025, type='vector')
   )
   
@@ -278,6 +278,7 @@ def main():
   
   config = RasterConfig(compute_point_heuristics=True,
                         compute_visibility=True,
+                        normalise_gradient=True,
                         tile_size=cmd_args.tile_size, 
                         blur_cov=0.3 if not cmd_args.antialias else 0.0,
                         antialias=cmd_args.antialias,
