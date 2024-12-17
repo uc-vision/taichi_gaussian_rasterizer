@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 import torch.nn.utils as nn_utils
 """This python file is used for training the old mlp with the batch sizs
     It include the clip gradient normalization
+    It use the mlp from the fit_image_gaussians.py
 """
 
 def psnr_batch_efficient(batch_a, batch_b):
