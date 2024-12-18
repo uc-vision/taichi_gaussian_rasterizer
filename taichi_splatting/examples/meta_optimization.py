@@ -122,21 +122,27 @@ class Trainer:
                 gaussians = gaussians - step * step_size
         return gaussians, mean_dicts(metrics)
 
-    def train_epoch(self, gaussians, step_size=0.01, epoch_size=100):
+    def train_epoch(self, gaussians, step_size=0.01, epoch_size=100,adam_weight=1.0):
+        
         metrics = []
         for i in range(epoch_size):
             self.adam_optimizer.zero_grad()
-            grad, metric = self.get_gradients(gaussians)
-            check_finite(grad, "grad")
+            gaussians.requires_grad_(True)
+
+            # check_finite(grad, "grad")
 
             # Store initial Gaussian state
-            gaussians_clone = gaussians.clone().detach().requires_grad_(True)
+            gaussians_clone = gaussians.clone().detach()
             
-            with torch.enable_grad():
-                self.render_step(gaussians=gaussians_clone)
+            self.render_step(gaussians=gaussians)
+            # print(gaussians.position.grad.sum())
+
             self.adam_optimizer.step()
-            gau_grad,_ = self.get_gradients(gaussians=gaussians_clone)
-            adam_step = gaussians_clone - gau_grad
+            adam_step = gaussians_clone - gaussians
+
+
+            # Undo self.adam_optimizer.step()
+            gaussians[:] = gaussians_clone
 
             # Train MLP to mimic Adam step
             self.mlp_opt.zero_grad()
@@ -145,25 +151,25 @@ class Trainer:
             inputs = flatten_tensorclass(grad)
 
             with torch.enable_grad():
-                step = self.optimizer_mlp(inputs, gaussians_clone, self.ref_image.shape[:2], self.config, self.ref_image)
+                # gaussians_clone1 = gaussians.clone().detach().requires_grad_(True)
+                step = self.optimizer_mlp(inputs, gaussians, self.ref_image.shape[:2], self.config, self.ref_image)
                 step = split_tensorclass(gaussians, step)
-                
-                h, w = self.ref_image.shape[:2]
-                scale = torch.exp(gaussians.log_scaling) / min(w, h)
-                opacity_reg = self.opacity_reg * gaussians.opacity.mean()
-                scale_reg = self.scale_reg * scale.pow(2).mean()
-                depth_reg = 0.0 * gaussians.z_depth.sum()
                 # Compare rendered images between Adam step and MLP step
-                r1 = self.render(adam_step)
-                r2 = self.render(gaussians - step)
-                meta_loss = torch.nn.functional.l1_loss(r2.image, r1.image)
-                meta_loss = meta_loss + opacity_reg + scale_reg + depth_reg
-                meta_loss.backward()
+                
+                loss = torch.nn.functional.l1_loss(flatten_tensorclass(adam_step), flatten_tensorclass(step))
+                loss.backward()
+
+                # meta_loss = torch.nn.functional.l1_loss(r2.image, r1.image)
+                # meta_loss.backward()
 
             self.mlp_opt.step()
             
             # Update Gaussians with the learned MLP step
-            gaussians = gaussians - step * step_size
+            # gaussians = gaussians - step 
+            # gaussians = gaussians - adam_weight * adam_step + (1 - adam_weight) * step
+            gaussians -= step
+
+
             
             # Track metrics
             metrics.append(metric)
@@ -219,29 +225,12 @@ def main():
     ]
 
     optimizer = torch.compile(optimizer)
-    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.00001)
-    learning_rate = 0.000000001
-    adam_optimizer = adam_optimizer = torch.optim.Adam(
-        [
-            {'params': gaussians.alpha_logit, 'lr': learning_rate},
-            {'params': gaussians.feature, 'lr': learning_rate},
-            {'params': gaussians.log_scaling, 'lr': learning_rate},
-            {'params': gaussians.position, 'lr': learning_rate},
-            {'params': gaussians.rotation, 'lr': learning_rate},
-            {'params': gaussians.z_depth, 'lr': learning_rate},
-        ],
-        betas=(0.9, 0.999),  # Default beta values for Adam
-        eps=1e-8  # Small epsilon to prevent division by zero
-    )
+    optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)
+    learning_rate = 0.01
+    
     config = RasterConfig()
 
-    trainer = Trainer(optimizer_mlp=optimizer,
-                        adam_optimizer=adam_optimizer,
-                      mlp_opt=optimizer_opt,
-                      ref_image=ref_image,
-                      config=config,
-                      opacity_reg=cmd_args.opacity_reg,
-                      scale_reg=cmd_args.scale_reg)
+    
     epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
 
     iteration = 0
@@ -256,11 +245,32 @@ def main():
         h, w = ref_image.shape[:2]
         torch.manual_seed(cmd_args.seed)
         torch.cuda.random.manual_seed(cmd_args.seed)
-        trainer.ref_image = ref_image
+        
+        
         gaussians = random_2d_gaussians(cmd_args.n, (w, h),
                                         alpha_range=(0.5, 1.0),
                                         scale_factor=1.0).to(
                                             torch.device('cuda:0'))
+        adam_optimizer = adam_optimizer = torch.optim.Adam(
+        [
+            {'params': gaussians.alpha_logit, 'lr': learning_rate},
+            {'params': gaussians.feature, 'lr': learning_rate},
+            {'params': gaussians.log_scaling, 'lr': learning_rate},
+            {'params': gaussians.position, 'lr': learning_rate},
+            {'params': gaussians.rotation, 'lr': learning_rate},
+            {'params': gaussians.z_depth, 'lr': learning_rate},
+        ],
+        betas=(0.9, 0.999),  # Default beta values for Adam
+        eps=1e-8  # Small epsilon to prevent division by zero
+    )
+        trainer = Trainer(optimizer_mlp=optimizer,
+                            adam_optimizer=adam_optimizer,
+                        mlp_opt=optimizer_opt,
+                        ref_image=ref_image,
+                        config=config,
+                        opacity_reg=cmd_args.opacity_reg,
+                        scale_reg=cmd_args.scale_reg)
+        
         pbar = tqdm(total=cmd_args.iters, desc="Initializing")
 
         for epoch_size in epochs:
