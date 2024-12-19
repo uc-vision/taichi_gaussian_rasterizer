@@ -27,15 +27,15 @@ def extract_wandb_data(project_name, run_id):
         
         # Retrieve historical data
         history = run.history(pandas=False)
-        m = history[""]
-        for row in history:
-            step = row.get("step", None)  # Ensure step is part of the history
-            if step is not None:
-                if step not in extracted_data["history"]:
-                    extracted_data["history"][step] = {}
-                for key, value in row.items():
-                    if key != "step":  # Exclude the 'step' key from nested data
-                        extracted_data["history"][step][key] = value
+        # m = history[""]
+        # for row in history:
+        #     step = row.get("step", None)  # Ensure step is part of the history
+        #     if step is not None:
+        #         if step not in extracted_data["history"]:
+        #             extracted_data["history"][step] = {}
+        #         for key, value in row.items():
+        #             if key != "step":  # Exclude the 'step' key from nested data
+        #                 extracted_data["history"][step][key] = value
         
         return extracted_data
 
