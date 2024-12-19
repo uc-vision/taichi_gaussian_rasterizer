@@ -113,7 +113,8 @@ def train_epoch(opt: FractionalAdam,
                 grad_alpha=0.9,
                 opacity_reg=0.0,
                 scale_reg=0.0,
-                loggable=False):
+                loggable=False,
+                iteration = 0):
 
     h, w = ref_image.shape[:2]
 
@@ -165,18 +166,18 @@ def train_epoch(opt: FractionalAdam,
     if loggable is True:
         log_adam_behavior_to_wandb(gaussians=gaussians,
                                    adam_optimizer=opt,
-                                   step=i,
+                                   iter=iteration,
                                    rendered_image=raster.image)
     return raster.image, point_heuristics
 
 
-def log_adam_behavior_to_wandb(gaussians, adam_optimizer, step,
+def log_adam_behavior_to_wandb(gaussians, adam_optimizer, iter,
                                rendered_image):
     """
     Logs Adam optimizer behavior to wandb.
     """
     log_data = {
-        "step": step,
+        "iter": iter,
     }
 
     for param_group in adam_optimizer.param_groups:
@@ -197,33 +198,33 @@ def log_adam_behavior_to_wandb(gaussians, adam_optimizer, step,
 
                 # Log parameters to wandb
                 wandb.log({
-                    f"step_{step}/param_gradients":
+                    f"iter_{iter}/param_gradients":
                     param.grad.cpu().numpy()
                     if param.grad is not None else None,
-                    f"step_{step}/m_t":
+                    f"iter_{iter}/m_t":
                     state['exp_avg'].cpu().numpy(),
-                    f"step_{step}/v_t":
+                    f"iter_{iter}/v_t":
                     state['exp_avg_sq'].cpu().numpy(),
-                    f"step_{step}/adam_update":
+                    f"iter_{iter}/adam_update":
                     adam_update.cpu().numpy(),
-                    f"step_{step}/before_update":
+                    f"iter_{iter}/before_update":
                     param.data.cpu().numpy(),
-                    f"step_{step}/after_update":
+                    f"iter_{iter}/after_update":
                     (param.data - adam_update).cpu().numpy(),
                 })
 
     wandb.log({
-        f"step_{step}/alpha_logit_value":
+        f"iter_{iter}/alpha_logit_value":
         wandb.Histogram(gaussians.alpha_logit.cpu().numpy()),
-        f"step_{step}/feature_value":
+        f"iter_{iter}/feature_value":
         wandb.Histogram(gaussians.feature.cpu().numpy()),
-        f"step_{step}/log_scaling_value":
+        f"iter_{iter}/log_scaling_value":
         wandb.Histogram(gaussians.log_scaling.cpu().numpy()),
-        f"step_{step}/position_value":
+        f"iter_{iter}/position_value":
         wandb.Histogram(gaussians.position.cpu().numpy()),
-        f"step_{step}/rotation_value":
+        f"iter_{iter}/rotation_value":
         wandb.Histogram(gaussians.rotation.cpu().numpy()),
-        f"step_{step}/z_depth_value":
+        f"iter_{iter}/z_depth_value":
         wandb.Histogram(gaussians.z_depth.cpu().numpy()),
     })
     gradients = {
@@ -240,7 +241,7 @@ def log_adam_behavior_to_wandb(gaussians, adam_optimizer, step,
         if grad is not None:
             # Log the histogram of the gradient if it exists
             wandb.log({
-                f"step_{step}/{name}_gradient":
+                f"iter_{iter}/{name}_gradient":
                 wandb.Histogram(grad.cpu().numpy())
             })
         else:
@@ -248,13 +249,13 @@ def log_adam_behavior_to_wandb(gaussians, adam_optimizer, step,
             param_data = getattr(gaussians, name)
             zero_grad = torch.zeros_like(param_data, device="cpu")
             wandb.log({
-                f"step_{step}/{name}_gradient":
+                f"iter_{iter}/{name}_gradient":
                 wandb.Histogram(zero_grad.numpy())
             })
 
     wandb.log({
-        f"step_{step}/rendered_image":
-        wandb.Image(rendered_image.cpu().numpy(), caption=f"Step {step}")
+        f"iter_{iter}/rendered_image":
+        wandb.Image(rendered_image.cpu().numpy(), caption=f"Step {iter}")
     })
 
 
@@ -446,7 +447,9 @@ def main():
             config=config,
             opacity_reg=cmd_args.opacity_reg,
             scale_reg=cmd_args.scale_reg,
-            loggable=cmd_args.wandb)
+            loggable=cmd_args.wandb,
+            iteration = iteration
+            )
 
         if cmd_args.show:
             display_image('rendered', image)
