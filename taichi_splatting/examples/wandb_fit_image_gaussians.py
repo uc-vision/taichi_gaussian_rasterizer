@@ -284,12 +284,12 @@ def log_adam_behavior_to_wandb(gaussians, adam_optimizer, iter,
 
     # Log Gaussian parameter values
     combined_log.update({
-        f"iter_{iter}/alpha_logit_value": wandb.Histogram(gaussians.alpha_logit.cpu().numpy()),
-        f"iter_{iter}/feature_value": wandb.Histogram(gaussians.feature.cpu().numpy()),
-        f"iter_{iter}/log_scaling_value": wandb.Histogram(gaussians.log_scaling.cpu().numpy()),
-        f"iter_{iter}/position_value": wandb.Histogram(gaussians.position.cpu().numpy()),
-        f"iter_{iter}/rotation_value": wandb.Histogram(gaussians.rotation.cpu().numpy()),
-        f"iter_{iter}/z_depth_value": wandb.Histogram(gaussians.z_depth.cpu().numpy()),
+        f"iter_{iter}/alpha_logit_value": gaussians.alpha_logit.cpu().numpy(),
+        f"iter_{iter}/feature_value": gaussians.feature.cpu().numpy(),
+        f"iter_{iter}/log_scaling_value": gaussians.log_scaling.cpu().numpy(),
+        f"iter_{iter}/position_value": gaussians.position.cpu().numpy(),
+        f"iter_{iter}/rotation_value": gaussians.rotation.cpu().numpy(),
+        f"iter_{iter}/z_depth_value": gaussians.z_depth.cpu().numpy(),
     })
 
     # Log optimizer parameter groups
