@@ -166,7 +166,7 @@ def train_epoch(opt: FractionalAdam,
     if loggable is True:
         log_adam_behavior_to_wandb(gaussians=gaussians,
                                    adam_optimizer=opt,
-                                   iter=iteration,
+                                   iter=iteration+epoch_size,
                                    rendered_image=raster.image)
     return raster.image, point_heuristics
 
