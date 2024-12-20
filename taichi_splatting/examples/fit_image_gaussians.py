@@ -33,9 +33,11 @@ def parse_args():
 
     parser.add_argument('--epoch',
                         type=int,
-                        default=20,
+                        default=4,
                         help='base epoch size (increases with t)')
-
+    parser.add_argument('--wandb_run_id', type=str, required=True, help='wandb run ID to load parameters from')
+    parser.add_argument('--project_name', type=str, required=True, help='project name to load parameters from wandb')
+    parser.add_argument('--max_epoch', type=int, default=16)
     parser.add_argument('--opacity_reg', type=float, default=0.0000)
     parser.add_argument('--scale_reg', type=float, default=10.0)
     parser.add_argument('--batch', type=int,default=1, help = "enable the batch size training default is 1")

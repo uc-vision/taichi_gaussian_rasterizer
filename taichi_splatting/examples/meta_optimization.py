@@ -27,6 +27,11 @@ from fit_image_gaussians import parse_args, partial, log_lerp, psnr, display_ima
 from fused_ssim import fused_ssim
 from gaussian_mixer import GaussianMixer
 from taichi_splatting.torch_lib.util import check_finite
+
+from extract_wandb import extract_wandb_data
+
+
+
 class Trainer:
 
     def __init__(self,
@@ -122,27 +127,22 @@ class Trainer:
                 gaussians = gaussians - step * step_size
         return gaussians, mean_dicts(metrics)
 
-    def train_epoch(self, gaussians, step_size=0.01, epoch_size=100,adam_weight=1.0):
+    def train_epoch(self, gaussians, step_size=0.01, epoch_size=20,adam_weight=1.0,extracted_data = None, iter = 0,index = 0):
         
         metrics = []
         for i in range(epoch_size):
-            self.adam_optimizer.zero_grad()
-            gaussians.requires_grad_(True)
 
-            # check_finite(grad, "grad")
-
-            # Store initial Gaussian state
+            # self.adam_optimizer.zero_grad()
+            # gaussians.requires_grad_(True)
             gaussians_clone = gaussians.clone().detach()
-            
-            self.render_step(gaussians=gaussians)
-            # print(gaussians.position.grad.sum())
+            # self.render_step(gaussians=gaussians)
+            # self.adam_optimizer.step()
+            # adam_step = gaussians_clone - gaussians
 
-            self.adam_optimizer.step()
-            adam_step = gaussians_clone - gaussians
+            extract_gaussian = reconstruct_gaussian (extracted_data=extracted_data,iter=iter,index = index,gaussian=gaussians_clone)
 
 
-            # Undo self.adam_optimizer.step()
-            gaussians[:] = gaussians_clone
+            gaussians[:] = gaussians_clone# Undo self.adam_optimizer.step()
 
             # Train MLP to mimic Adam step
             self.mlp_opt.zero_grad()
@@ -174,8 +174,36 @@ class Trainer:
             # Track metrics
             metrics.append(metric)
         return gaussians, mean_dicts(metrics)
+def reconstruct_gaussian(extracted_data, iter, index,gaussian):
+    gaussian_data = extracted_data["history"][index]
 
+    # Initialize the Gaussians2D object
+    c = gaussian_data[f"iter_{iter}/alpha_logit_value"]['values']
+    # Convert logged histograms back to tensors
+    gaussians.alpha_logit = torch.tensor(np.array(gaussian_data[f"iter_{iter}/alpha_logit_value"]["values"]), dtype=torch.float32)
+    gaussians.feature = torch.tensor(np.array(gaussian_data[f"iter_{iter}/feature_value"]["values"]), dtype=torch.float32)
+    gaussians.log_scaling = torch.tensor(np.array(gaussian_data[f"iter_{iter}/log_scaling_value"]["values"]), dtype=torch.float32)
+    gaussians.position = torch.tensor(np.array(gaussian_data[f"iter_{iter}/position_value"]["values"]), dtype=torch.float32)
+    gaussians.rotation = torch.tensor(np.array(gaussian_data[f"iter_{iter}/rotation_value"]["values"]), dtype=torch.float32)
+    gaussians.z_depth = torch.tensor(np.array(gaussian_data[f"iter_{iter}/z_depth_value"]["values"]), dtype=torch.float32)
 
+    return gaussians
+def make_epochs(total_iters, first_epoch, max_epoch):
+    iteration = 0
+    epochs = []
+    while iteration < total_iters:
+
+        t = iteration / total_iters
+        epoch_size = math.ceil(log_lerp(t, first_epoch, max_epoch))
+
+        if iteration + epoch_size * 2 > total_iters:
+            # last epoch can just use the extra iterations
+            epoch_size = total_iters - iteration
+
+        iteration += epoch_size
+        epochs.append(epoch_size)
+
+    return epochs
 def main():
 
     torch.set_printoptions(precision=4, sci_mode=True)
@@ -218,11 +246,11 @@ def main():
                               method = cmd_args.method).to(device)
     optimizer.to(device=device)
 
-    dataset_folder = cmd_args.image_file  # Using the argument as a folder path
-    image_files = [
-        os.path.join(dataset_folder, f) for f in os.listdir(dataset_folder)
-        if f.endswith(('.png', '.jpg', '.jpeg'))
-    ]
+    # dataset_folder = cmd_args.image_file  # Using the argument as a folder path
+    # image_files = [
+    #     os.path.join(dataset_folder, f) for f in os.listdir(dataset_folder)
+    #     if f.endswith(('.png', '.jpg', '.jpeg'))
+    # ]
 
     optimizer = torch.compile(optimizer)
     optimizer_opt = torch.optim.Adam(optimizer.parameters(), lr=0.001)
@@ -231,84 +259,87 @@ def main():
     config = RasterConfig()
 
     
-    epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
-
-    iteration = 0
+    # epochs = [cmd_args.epoch for _ in range(cmd_args.iters // cmd_args.epoch)]
+    epochs = epochs = make_epochs(cmd_args.iters, cmd_args.epoch, cmd_args.max_epoch)
+    
     test_interval = cmd_args.test
 
-    for num, img_path in enumerate(image_files, start=1):
-        ref_image = cv2.imread(img_path)
-        ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32,
-                                                   device=device) / 255
-        assert ref_image is not None, f'Could not read {img_path}'
+    # for num, img_path in enumerate(image_files, start=1):
+    num = 100
+    ref_image = cv2.imread(cmd_args.image_file)
+    ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32,
+                                                device=device) / 255
+    assert ref_image is not None, f'Could not read {cmd_args.image_file}'
 
-        h, w = ref_image.shape[:2]
-        torch.manual_seed(cmd_args.seed)
-        torch.cuda.random.manual_seed(cmd_args.seed)
-        
-        
-        gaussians = random_2d_gaussians(cmd_args.n, (w, h),
-                                        alpha_range=(0.5, 1.0),
-                                        scale_factor=1.0).to(
-                                            torch.device('cuda:0'))
-        adam_optimizer = adam_optimizer = torch.optim.Adam(
-        [
-            {'params': gaussians.alpha_logit, 'lr': learning_rate},
-            {'params': gaussians.feature, 'lr': learning_rate},
-            {'params': gaussians.log_scaling, 'lr': learning_rate},
-            {'params': gaussians.position, 'lr': learning_rate},
-            {'params': gaussians.rotation, 'lr': learning_rate},
-            {'params': gaussians.z_depth, 'lr': learning_rate},
-        ],
-        betas=(0.9, 0.999),  # Default beta values for Adam
-        eps=1e-8  # Small epsilon to prevent division by zero
-    )
-        trainer = Trainer(optimizer_mlp=optimizer,
-                            adam_optimizer=adam_optimizer,
-                        mlp_opt=optimizer_opt,
-                        ref_image=ref_image,
-                        config=config,
-                        opacity_reg=cmd_args.opacity_reg,
-                        scale_reg=cmd_args.scale_reg)
-        
-        pbar = tqdm(total=cmd_args.iters, desc="Initializing")
+    h, w = ref_image.shape[:2]
+    torch.manual_seed(cmd_args.seed)
+    torch.cuda.random.manual_seed(cmd_args.seed)
+    
+    
+    gaussians = random_2d_gaussians(cmd_args.n, (w, h),
+                                    alpha_range=(0.5, 1.0),
+                                    scale_factor=1.0).to(
+                                        torch.device('cuda:0'))
+    adam_optimizer = adam_optimizer = torch.optim.Adam(
+    [
+        {'params': gaussians.alpha_logit, 'lr': learning_rate},
+        {'params': gaussians.feature, 'lr': learning_rate},
+        {'params': gaussians.log_scaling, 'lr': learning_rate},
+        {'params': gaussians.position, 'lr': learning_rate},
+        {'params': gaussians.rotation, 'lr': learning_rate},
+        {'params': gaussians.z_depth, 'lr': learning_rate},
+    ],
+    betas=(0.9, 0.999),  # Default beta values for Adam
+    eps=1e-8  # Small epsilon to prevent division by zero
+)
+    trainer = Trainer(optimizer_mlp=optimizer,
+                        adam_optimizer=adam_optimizer,
+                    mlp_opt=optimizer_opt,
+                    ref_image=ref_image,
+                    config=config,
+                    opacity_reg=cmd_args.opacity_reg,
+                    scale_reg=cmd_args.scale_reg)
+    
+    pbar = tqdm(total=cmd_args.iters, desc="Initializing")
+    extracted_data = extract_wandb_data(cmd_args.project_name, cmd_args.wandb_run_id)
+    iteration = 0
+    
+    for i,epoch_size in enumerate(epochs):
 
-        for epoch_size in epochs:
+        metrics = {}
 
-            metrics = {}
+        # Set warmup schedule for first iterations - log interpolate
+        step_size = log_lerp(min(iteration / 100., 1.0), 0.1, 1.0)
 
-            # Set warmup schedule for first iterations - log interpolate
-            step_size = log_lerp(min(iteration / 100., 1.0), 0.1, 1.0)
+        if cmd_args and num % test_interval == 2:
+            pbar.set_description(f"Testing Progress")
+            gaussians, train_metrics = trainer.test(gaussians,
+                                                    epoch_size=epoch_size,
+                                                    step_size=step_size)
 
-            if cmd_args and num % test_interval == 0:
-                pbar.set_description(f"Testing Progress")
-                gaussians, train_metrics = trainer.test(gaussians,
-                                                        epoch_size=epoch_size,
-                                                        step_size=step_size)
+        else:
+            pbar.set_description(f"Training Progress")
+            gaussians, train_metrics = trainer.train_epoch(
+                gaussians, epoch_size=epoch_size, step_size=step_size,extracted_data=extracted_data,index = i,iter= iteration+epoch_size)
 
-            else:
-                pbar.set_description(f"Training Progress")
-                gaussians, train_metrics = trainer.train_epoch(
-                    gaussians, epoch_size=epoch_size, step_size=step_size)
+        image = trainer.render(gaussians).image
+        if cmd_args.show:
+            display_image('rendered', image)
 
-            image = trainer.render(gaussians).image
-            if cmd_args.show:
-                display_image('rendered', image)
+        metrics['CPSNR'] = psnr(ref_image, image).item()
+        metrics['n'] = gaussians.batch_size[0]
+        metrics.update(train_metrics)
 
-            metrics['CPSNR'] = psnr(ref_image, image).item()
-            metrics['n'] = gaussians.batch_size[0]
-            metrics.update(train_metrics)
+        for k, v in metrics.items():
+            if isinstance(v, float):
+                metrics[k] = f'{v:.4f}'
+            if isinstance(v, int):
+                metrics[k] = f'{v:4d}'
 
-            for k, v in metrics.items():
-                if isinstance(v, float):
-                    metrics[k] = f'{v:.4f}'
-                if isinstance(v, int):
-                    metrics[k] = f'{v:4d}'
+        pbar.set_postfix(**metrics)
 
-            pbar.set_postfix(**metrics)
-
-            iteration += epoch_size
-            pbar.update(epoch_size)
+        iteration += epoch_size
+        pbar.update(epoch_size)
 
 
 if __name__ == "__main__":
