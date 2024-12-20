@@ -179,85 +179,129 @@ def log_adam_behavior_to_wandb(gaussians, adam_optimizer, iter,
     log_data = {
         "iter": iter,
     }
+    param_groups_log = {}
 
-    for param_group in adam_optimizer.param_groups:
+    for idx, param_group in enumerate(adam_optimizer.param_groups):
+        group_data = {
+            "lr": param_group['lr'],  # Log learning rate
+            "weight_decay": param_group.get('weight_decay', 0),  # Optional weight decay
+        }
+
+        # Log all parameters and gradients in the param_group
+        params_data = []
         for param in param_group['params']:
-            if param in adam_optimizer.state:
-                state = adam_optimizer.state[param]
+            param_data = {
+                "param_value": param.data.cpu().numpy(),
+                "gradient": param.grad.cpu().numpy() if param.grad is not None else None
+            }
+            params_data.append(param_data)
+        
+        group_data["params"] = params_data
+        param_groups_log[f"param_group_{idx}"] = group_data
 
-                # Adjust `exp_avg_sq` to match the shape of `param.data`
-                if state['exp_avg_sq'].ndim == 1:
-                    exp_avg_sq_broadcasted = state['exp_avg_sq'].unsqueeze(
-                        -1).expand_as(param.data)
-                else:
-                    exp_avg_sq_broadcasted = state['exp_avg_sq']
+    # Log the entire param_groups to WandB
+    
+    # for param_group in adam_optimizer.param_groups:
+    #     for param in param_group['params']:
+    #         if param in adam_optimizer.state:
+    #             state = adam_optimizer.state[param]
 
-                # Compute the Adam update
-                adam_update = param_group['lr'] * state['exp_avg'] / (
-                    torch.sqrt(exp_avg_sq_broadcasted) + 1e-8)
+    #             # Adjust `exp_avg_sq` to match the shape of `param.data`
+    #             if state['exp_avg_sq'].ndim == 1:
+    #                 exp_avg_sq_broadcasted = state['exp_avg_sq'].unsqueeze(
+    #                     -1).expand_as(param.data)
+    #             else:
+    #                 exp_avg_sq_broadcasted = state['exp_avg_sq']
 
-                # Log parameters to wandb
-                wandb.log({
-                    f"iter_{iter}/param_gradients":
-                    param.grad.cpu().numpy()
-                    if param.grad is not None else None,
-                    f"iter_{iter}/m_t":
-                    state['exp_avg'].cpu().numpy(),
-                    f"iter_{iter}/v_t":
-                    state['exp_avg_sq'].cpu().numpy(),
-                    f"iter_{iter}/adam_update":
-                    adam_update.cpu().numpy(),
-                    f"iter_{iter}/before_update":
-                    param.data.cpu().numpy(),
-                    f"iter_{iter}/after_update":
-                    (param.data - adam_update).cpu().numpy(),
-                })
+    #             # Compute the Adam update
+    #             adam_update = param_group['lr'] * state['exp_avg'] / (
+    #                 torch.sqrt(exp_avg_sq_broadcasted) + 1e-8)
 
-    wandb.log({
-        f"iter_{iter}/alpha_logit_value":
-        wandb.Histogram(gaussians.alpha_logit.cpu().numpy()),
-        f"iter_{iter}/feature_value":
-        wandb.Histogram(gaussians.feature.cpu().numpy()),
-        f"iter_{iter}/log_scaling_value":
-        wandb.Histogram(gaussians.log_scaling.cpu().numpy()),
-        f"iter_{iter}/position_value":
-        wandb.Histogram(gaussians.position.cpu().numpy()),
-        f"iter_{iter}/rotation_value":
-        wandb.Histogram(gaussians.rotation.cpu().numpy()),
-        f"iter_{iter}/z_depth_value":
-        wandb.Histogram(gaussians.z_depth.cpu().numpy()),
-    })
+    #             # Log parameters to wandb
+    #             wandb.log({
+    #                 f"iter_{iter}/param_gradients":
+    #                 param.grad.cpu().numpy()
+    #                 if param.grad is not None else None,
+    #                 f"iter_{iter}/m_t":
+    #                 state['exp_avg'].cpu().numpy(),
+    #                 f"iter_{iter}/v_t":
+    #                 state['exp_avg_sq'].cpu().numpy(),
+    #                 f"iter_{iter}/adam_update":
+    #                 adam_update.cpu().numpy(),
+    #                 f"iter_{iter}/before_update":
+    #                 param.data.cpu().numpy(),
+    #                 f"iter_{iter}/after_update":
+    #                 (param.data - adam_update).cpu().numpy(),
+    #             })
+
+    
+    # gradients = {
+    #     "alpha_logit": gaussians.alpha_logit.grad,
+    #     "feature": gaussians.feature.grad,
+    #     "log_scaling": gaussians.log_scaling.grad,
+    #     "position": gaussians.position.grad,
+    #     "rotation": gaussians.rotation.grad,
+    #     "z_depth": gaussians.z_depth.grad,
+    # }
+
+    # # Loop through the gradients and log them
+    # for name, grad in gradients.items():
+    #     if grad is not None:
+    #         # Log the histogram of the gradient if it exists
+    #         m = grad.cpu().numpy()
+    #         wandb.log({
+    #             f"iter_{iter}/{name}_gradient":
+    #             wandb.Histogram(grad.cpu().numpy())
+    #         })
+    #     else:
+    #         # If gradient is None, log a zero histogram
+    #         param_data = getattr(gaussians, name)
+    #         zero_grad = torch.zeros_like(param_data, device="cpu")
+    #         wandb.log({
+    #             f"iter_{iter}/{name}_gradient":
+    #             wandb.Histogram(zero_grad.numpy())
+    #         })
     gradients = {
-        "alpha_logit": gaussians.alpha_logit.grad,
-        "feature": gaussians.feature.grad,
-        "log_scaling": gaussians.log_scaling.grad,
-        "position": gaussians.position.grad,
-        "rotation": gaussians.rotation.grad,
-        "z_depth": gaussians.z_depth.grad,
-    }
+    "alpha_logit": gaussians.alpha_logit.grad,
+    "feature": gaussians.feature.grad,
+    "log_scaling": gaussians.log_scaling.grad,
+    "position": gaussians.position.grad,
+    "rotation": gaussians.rotation.grad,
+    "z_depth": gaussians.z_depth.grad,
+}
 
-    # Loop through the gradients and log them
+# Prepare a dictionary to log all gradients at once
+    combined_log = {}
+
+# Log gradients
     for name, grad in gradients.items():
         if grad is not None:
-            # Log the histogram of the gradient if it exists
-            wandb.log({
-                f"iter_{iter}/{name}_gradient":
-                wandb.Histogram(grad.cpu().numpy())
-            })
+            combined_log[f"iter_{iter}/{name}_gradient"] = wandb.Histogram(grad.cpu().numpy())
         else:
-            # If gradient is None, log a zero histogram
             param_data = getattr(gaussians, name)
             zero_grad = torch.zeros_like(param_data, device="cpu")
-            wandb.log({
-                f"iter_{iter}/{name}_gradient":
-                wandb.Histogram(zero_grad.numpy())
-            })
+            combined_log[f"iter_{iter}/{name}_gradient"] = wandb.Histogram(zero_grad.numpy())
 
-    wandb.log({
-        f"iter_{iter}/rendered_image":
-        wandb.Image(rendered_image.cpu().numpy(), caption=f"Step {iter}")
+    # Log Gaussian parameter values
+    combined_log.update({
+        f"iter_{iter}/alpha_logit_value": wandb.Histogram(gaussians.alpha_logit.cpu().numpy()),
+        f"iter_{iter}/feature_value": wandb.Histogram(gaussians.feature.cpu().numpy()),
+        f"iter_{iter}/log_scaling_value": wandb.Histogram(gaussians.log_scaling.cpu().numpy()),
+        f"iter_{iter}/position_value": wandb.Histogram(gaussians.position.cpu().numpy()),
+        f"iter_{iter}/rotation_value": wandb.Histogram(gaussians.rotation.cpu().numpy()),
+        f"iter_{iter}/z_depth_value": wandb.Histogram(gaussians.z_depth.cpu().numpy()),
     })
 
+    # Log optimizer parameter groups
+    combined_log[f"iter_{iter}/param_groups"] = param_groups_log
+
+    # Log rendered image
+    combined_log[f"iter_{iter}/rendered_image"] = wandb.Image(
+        rendered_image.cpu().numpy(), caption=f"Step {iter}"
+    )
+
+    # Perform a single log call with the combined dictionary
+    wandb.log(combined_log)
 
 def make_epochs(total_iters, first_epoch, max_epoch):
     iteration = 0
