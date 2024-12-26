@@ -14,7 +14,7 @@ class CameraParams:
 
   near_plane: float
   far_plane: float
-  image_size: Tuple[Integral, Integral]
+  image_size: Tuple[int, int]
 
 
   @property

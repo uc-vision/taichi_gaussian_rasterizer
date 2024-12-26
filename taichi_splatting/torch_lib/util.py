@@ -1,7 +1,6 @@
 import torch
 from typing import Mapping, Sequence
-from tensordict import TensorDict
-from tensordict.tensorclass import is_tensorclass
+from tensordict.tensorclass import TensorClass
 
 def check_finite(t, name, warn=False):
 
@@ -38,7 +37,7 @@ def count_nonfinite(t, name, warn=False) -> dict:
       d.update(count_nonfinite(v, f'{name}.{k}', warn))
     return d
 
-  if is_tensorclass(t):
+  if isinstance(t, TensorClass):
     for k, v in t.items():
       d.update(count_nonfinite(v, f'{name}.{k}', warn))
     return d

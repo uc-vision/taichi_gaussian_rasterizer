@@ -1,7 +1,7 @@
 from dataclasses import dataclass, replace
 from beartype.typing import Tuple
 from beartype import beartype
-from tensordict import tensorclass
+from tensordict import TensorClass
 import torch
 
 from torch.nn import functional as F
@@ -53,8 +53,7 @@ def check_packed2d(packed_gaussians: torch.Tensor):
 
 
 
-@tensorclass
-class Gaussians3D():
+class Gaussians3D(TensorClass):
   position     : torch.Tensor # 3  - xyz
   log_scaling   : torch.Tensor # 3  - scale = exp(log_scalining) 
   rotation      : torch.Tensor # 4  - quaternion wxyz
@@ -82,14 +81,7 @@ class Gaussians3D():
   @property
   def alpha(self):
     return torch.sigmoid(self.alpha_logit)
-  
-  def requires_grad_(self, requires_grad):
-    self.position.requires_grad_(requires_grad)
-    self.log_scaling.requires_grad_(requires_grad)
-    self.rotation.requires_grad_(requires_grad)
-    self.alpha_logit.requires_grad_(requires_grad)
-    self.feature.requires_grad_(requires_grad)
-    return self
+
   
   def replace(self, **kwargs):
     return replace(self, **kwargs, batch_size=self.batch_size)
@@ -107,8 +99,7 @@ class Gaussians3D():
 def inverse_sigmoid(x:torch.Tensor):
   return torch.log(x / (1 - x))
 
-@tensorclass
-class Gaussians2D():
+class Gaussians2D(TensorClass):
   position     : torch.Tensor # 2  - xy
   z_depth        : torch.Tensor # 1  - for sorting
   log_scaling   : torch.Tensor # 2

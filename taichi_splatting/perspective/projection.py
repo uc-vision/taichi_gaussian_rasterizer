@@ -1,3 +1,4 @@
+# type: ignore
 
 from functools import cache
 from numbers import Integral
@@ -202,7 +203,7 @@ def apply(position:torch.Tensor, log_scaling:torch.Tensor,
   _module_function = project_to_image_function(position.dtype, clamp_margin, blur_cov, alpha_threshold)
   n = position.shape[0]
 
-  return _module_function.apply(
+  return _module_function.apply( # type: ignore
     position.contiguous(),
     log_scaling.contiguous(),
     rotation.contiguous(),
