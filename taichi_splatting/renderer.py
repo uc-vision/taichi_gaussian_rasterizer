@@ -105,8 +105,8 @@ class Rendering:
   
   @cached_property
   def visible(self) -> Tuple[torch.Tensor, torch.Tensor]:
-    """ Visible points and their features """
-    return self.visible_indices, self.point_visibility
+    """ Returns visible point indexes, and their features """
+    return self.visible_indices, self.point_visibility[self.visible_mask]
 
 
   @property
@@ -118,8 +118,6 @@ class Rendering:
     return self.points_in_view.shape[0]
   
   def detach(self):
-
-    
     return Rendering(
       **{k: x.detach() if hasattr(x, 'detach') else x
           for k, x in unpack(self).items()})

@@ -42,7 +42,8 @@ class TaichiQueue():
 
   @classmethod
   def init(cls, *args, threaded=False, **kwargs) -> None:
-    assert cls.executor is None, "TaichiQueue already initialized"
+    if cls.executor is not None:
+      return cls.executor
     
     executor = ThreadPoolExecutor if threaded else NullExecutor
 
