@@ -29,7 +29,7 @@ class Rendering:
   """ Collection of outputs from the renderer, 
 
   depth and depth var are optional, as they are only computed if render_depth=True
-  split_heuristic is computed in the backward pass if compute_split_heuristic=True
+  point_heuristic is computed in the backward pass if compute_point_heuristic=True
 
   """
   image: torch.Tensor        # (H, W, C) - rendered image, C channels of features
@@ -40,7 +40,7 @@ class Rendering:
   point_depth: torch.Tensor  # (N, 1) - depth of each point
 
   point_visibility: Optional[torch.Tensor] = None  # (N,) 
-  split_heuristic: Optional[torch.Tensor] = None  # (N,) 
+  point_heuristic: Optional[torch.Tensor] = None  # (N, 2) 
 
   camera : CameraParams
   config: RasterConfig
@@ -82,13 +82,13 @@ class Rendering:
   
   @property
   def prune_cost(self):
-    assert self.config.compute_split_heuristic, "No split heuristic information available (use config.compute_split_heuristic=True)"
-    return self.split_heuristic
+    assert self.config.compute_point_heuristic, "No point heuristic information available (use config.compute_point_heuristic=True)"
+    return self.point_heuristic[:, 0]
 
   @property
   def split_score(self):
-    assert self.config.compute_split_heuristic, "No split heuristic information available (use config.compute_split_heuristic=True)"
-    return self.split_heuristic
+    assert self.config.compute_point_heuristic, "No point heuristic information available (use config.compute_point_heuristic=True)"
+    return self.point_heuristic[:, 1]
   
   @property
   def _point_visibility(self) -> torch.Tensor:
@@ -222,7 +222,7 @@ def render_projected(indexes:torch.Tensor, gaussians2d:torch.Tensor,
                   camera=camera_params,
                   config=config,
                   point_visibility = raster.visibility if config.compute_visibility else None,  
-                  split_heuristic=raster.split_heuristic if config.compute_split_heuristic else None,
+                  point_heuristic=raster.split_heuristic if config.compute_point_heuristic else None,
                   points_in_view=indexes,
 
                   point_depth=depths,

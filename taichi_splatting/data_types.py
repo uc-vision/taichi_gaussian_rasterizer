@@ -36,7 +36,7 @@ class RasterConfig:
   # use alpha blending - if set to false, with saturate_threshold can be used to compute quantile (e.g. median)
   use_alpha_blending: bool = True
 
-  compute_split_heuristic: bool = False # implies compute_visibility
+  compute_point_heuristic: bool = False # implies compute_visibility
   compute_visibility: bool = False # compute visibility (pixels) for each gaussian
 
 

@@ -95,7 +95,7 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
     
   h, w = ref_image.shape[:2]
 
-  split_heuristic = torch.zeros((params.batch_size[0]), device=params.position.device)
+  point_heuristic = torch.zeros((params.batch_size[0], 2), device=params.position.device)
   visibility = torch.zeros((params.batch_size[0]), device=params.position.device)
 
   for i in range(epoch_size):
@@ -139,10 +139,10 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
       log_scaling = torch.clamp(params.log_scaling.detach(), min=-5, max=5)
     )
 
-    split_heuristic +=  raster.split_heuristic
+    point_heuristic +=  raster.point_heuristic
     visibility += raster.visibility
 
-  return raster.image, (visibility, split_heuristic) 
+  return raster.image, (point_heuristic[:, 0], point_heuristic[:, 1]) 
 
 
 def make_epochs(total_iters, first_epoch, max_epoch):
@@ -200,13 +200,13 @@ def find_split_prune(n, target, n_prune, prune_cost, densify_score):
 def split_prune(params:ParameterClass, t, target, prune_rate, split_heuristic:Tuple[torch.Tensor, torch.Tensor]):
   n = params.batch_size[0]
 
-  visibility, split_heuristic = split_heuristic
+  prune_cost, split_heuristic = split_heuristic
 
   split_mask, prune_mask = find_split_prune(n = n, 
                   target = target,
                   n_prune=int(prune_rate * n * (1 - t)),
                   # n_prune=int(prune_rate * n),
-                  prune_cost=visibility,
+                  prune_cost=prune_cost,
                   densify_score=split_heuristic)
 
   to_split = params[split_mask]
@@ -282,7 +282,7 @@ def main():
 
   ref_image = torch.from_numpy(ref_image).to(dtype=torch.float32, device=device) / 255
   
-  config = RasterConfig(compute_split_heuristic=True,
+  config = RasterConfig(compute_point_heuristic=True,
                         compute_visibility=True,
 
                         tile_size=cmd_args.tile_size, 
