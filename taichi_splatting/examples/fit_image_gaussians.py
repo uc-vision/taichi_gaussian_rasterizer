@@ -47,7 +47,7 @@ def parse_args():
 
   parser.add_argument('--prune_rate', type=float, default=0.02, help='Rate of pruning proportional to number of points')
   parser.add_argument('--opacity_reg', type=float, default=0.0001)
-  parser.add_argument('--scale_reg', type=float, default=5.0)
+  parser.add_argument('--scale_reg', type=float, default=10.0)
 
   parser.add_argument('--threaded', action='store_true', help='Use taichi dedicated thread')
 
@@ -274,7 +274,8 @@ def main():
   #       parameter_groups, optimizer=SparseAdam, betas=(0.9, 0.95), eps=1e-16, bias_correction=True)
 
   params = ParameterClass(gaussians.to_tensordict(), 
-        parameter_groups, optimizer=VisibilityAwareLaProp, vis_beta=0.8, betas=(0.9, 0.9), eps=1e-16, bias_correction=False)
+        parameter_groups, optimizer=VisibilityAwareLaProp, 
+        vis_smooth=1.0, vis_beta=0.8, betas=(0.9, 0.9), eps=1e-16, bias_correction=True)
   
   keys = set(params.keys())
   trainable = set(params.optimized_keys())

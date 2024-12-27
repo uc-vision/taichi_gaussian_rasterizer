@@ -112,15 +112,19 @@ class VisibilityOptimizer(torch.optim.Optimizer):
 
 class VisibilityAwareAdam(VisibilityOptimizer):
   def __init__(self, param_groups, lr=0.001, 
-               betas=(0.9, 0.999), eps=1e-16, vis_beta=0.5, bias_correction=True):
+               betas=(0.9, 0.999), eps=1e-16, vis_beta=0.5, 
+               vis_smooth:float = 0.1, bias_correction=True):
     super().__init__(fractional_adam, param_groups=param_groups,
-                     lr=lr, betas=betas, eps=eps, vis_beta=vis_beta, bias_correction=bias_correction)
+                     lr=lr, betas=betas, eps=eps, vis_beta=vis_beta, 
+                     vis_smooth=vis_smooth, bias_correction=bias_correction)
 
 
 class VisibilityAwareLaProp(VisibilityOptimizer):
   def __init__(self, param_groups, lr=0.001, 
-               betas=(0.9, 0.999), eps=1e-16, vis_beta=0.5, bias_correction=True):
+               betas=(0.9, 0.999), eps=1e-16, vis_beta=0.5, 
+               vis_smooth:float=0.1, bias_correction=True):
     
     
     super().__init__(fractional_laprop, param_groups=param_groups,
-                     lr=lr, betas=betas, eps=eps, vis_beta=vis_beta, bias_correction=bias_correction)
+                     lr=lr, betas=betas, eps=eps, vis_beta=vis_beta, 
+                     vis_smooth=vis_smooth, bias_correction=bias_correction)
