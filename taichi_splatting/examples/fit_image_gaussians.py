@@ -42,12 +42,12 @@ def parse_args():
   parser.add_argument('--max_lr', type=float, default=1.0)
   parser.add_argument('--min_lr', type=float, default=0.1)
 
-  parser.add_argument('--epoch', type=int, default=4, help='base epoch size (increases with t)')
+  parser.add_argument('--epoch', type=int, default=8, help='base epoch size (increases with t)')
   parser.add_argument('--max_epoch', type=int, default=16)
 
-  parser.add_argument('--prune_rate', type=float, default=0.05, help='Rate of pruning proportional to number of points')
+  parser.add_argument('--prune_rate', type=float, default=0.02, help='Rate of pruning proportional to number of points')
   parser.add_argument('--opacity_reg', type=float, default=0.0001)
-  parser.add_argument('--scale_reg', type=float, default=10.0)
+  parser.add_argument('--scale_reg', type=float, default=5.0)
 
   parser.add_argument('--threaded', action='store_true', help='Use taichi dedicated thread')
 
@@ -141,6 +141,7 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
 
     point_heuristic +=  raster.point_heuristic
     visibility += raster.visibility
+
 
   return raster.image, (point_heuristic[:, 0], point_heuristic[:, 1]) 
 
@@ -273,7 +274,7 @@ def main():
   #       parameter_groups, optimizer=SparseAdam, betas=(0.9, 0.95), eps=1e-16, bias_correction=True)
 
   params = ParameterClass(gaussians.to_tensordict(), 
-        parameter_groups, optimizer=VisibilityAwareLaProp, vis_beta=0.9, betas=(0.9, 0.9), eps=1e-16, bias_correction=False)
+        parameter_groups, optimizer=VisibilityAwareLaProp, vis_beta=0.8, betas=(0.9, 0.9), eps=1e-16, bias_correction=False)
   
   keys = set(params.keys())
   trainable = set(params.optimized_keys())

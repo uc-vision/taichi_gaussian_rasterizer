@@ -61,7 +61,7 @@ def set_indexes(target:torch.Tensor, values:torch.Tensor, indexes:torch.Tensor):
 class VisibilityOptimizer(torch.optim.Optimizer):
   
   def __init__(self, kernels:types.ModuleType, param_groups:list[dict], lr=0.001, 
-               betas=(0.9, 0.999), eps=1e-16, vis_beta=0.9, bias_correction=True):
+               betas=(0.9, 0.999), eps=1e-16, vis_beta=0.9, vis_smooth:float=0.1, bias_correction=True):
     
     assert lr > 0, f"Invalid learning rate: {lr}"
     assert eps > 0, f"Invalid epsilon: {eps}"
@@ -71,6 +71,7 @@ class VisibilityOptimizer(torch.optim.Optimizer):
     defaults = dict(lr=lr, betas=betas, eps=eps, mask_lr=None, type="scalar", bias_correction=bias_correction)  
 
     self.vis_beta = vis_beta
+    self.vis_smooth = vis_smooth
     self.kernels = kernels
     super().__init__(param_groups, defaults)
 
@@ -98,7 +99,7 @@ class VisibilityOptimizer(torch.optim.Optimizer):
 
       assert group.num_points == n, f"param shape {group.num_points} != {n}"
       group = replace(group, grad=set_indexes(group.grad, 
-                        group.grad[indexes] / visibility.unsqueeze(1), 
+                        group.grad[indexes] / (visibility.unsqueeze(1) + self.vis_smooth), 
                           indexes))
 
       lr_step = weighted_step(group, weight, indexes, total_weight, self.kernels, basis)

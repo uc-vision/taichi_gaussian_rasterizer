@@ -193,9 +193,9 @@ def backward_kernel(config: RasterConfig,
               
               if ti.static(config.compute_point_heuristic):
                 gaussian_point_heuristics += vec2(
-                  #((alpha_grad * grad_pixel_feature[i,:]) ** 2).sum() * weight,
-                  weight,
-                  (lib.l1_norm(pos_grad))
+                  ((alpha_grad * grad_pixel_feature[i,:]) ** 2).sum(),
+                  # weight,
+                  lib.l1_norm(pos_grad)
                 )
 
               if ti.static(features_requires_grad):
@@ -226,7 +226,7 @@ def backward_kernel(config: RasterConfig,
             ti.atomic_add(grad_features[point_idx], tile_grad_feature[tile_idx])
 
           if ti.static(config.compute_point_heuristic):
-            ti.atomic_add(point_heuristic[point_idx], tile_point_heuristics[tile_idx][0])
+            ti.atomic_add(point_heuristic[point_idx], tile_point_heuristics[tile_idx])
 
 
   return _backward_kernel
