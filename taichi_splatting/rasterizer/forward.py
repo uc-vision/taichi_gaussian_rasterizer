@@ -52,6 +52,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
 
       accum_features = feature_vec(0.0)
       total_weight = 0.0 if in_bounds else 1.0
+      saturated = False
 
       start_offset, end_offset = tile_overlap_ranges[tile_id]
       tile_point_count = end_offset - start_offset
@@ -66,7 +67,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
                          if ti.static(config.compute_visibility) else None)
 
       for point_group_id in range(num_point_groups):
-        if ti.simt.block.sync_all_nonzero(ti.i32(total_weight >= ti.static(config.saturate_threshold))):
+        if ti.simt.block.sync_all_nonzero(ti.i32(saturated)):
           break
 
         # Load points into shared memory
@@ -89,7 +90,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
         # Process all points in group for each pixel in tile
         for in_group_idx in range(min(tile_area, remaining_points)):
           if ti.simt.warp.all_nonzero(ti.u32(0xffffffff), 
-              ti.i32(total_weight >= ti.static(config.saturate_threshold))):
+              ti.i32(saturated)):
             break
 
           weight = 0.0
@@ -107,9 +108,10 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
               accum_features += tile_feature[in_group_idx] * weight
             else:
               # no blending - use this to compute quantile (e.g. median) along with config.saturate_threshold
-              if total_weight >= ti.static(1.0 - config.saturate_threshold):
+              if total_weight >= ti.static(1.0 - config.saturate_threshold) and not saturated:
                 accum_features = tile_feature[in_group_idx]
             
+              saturated = total_weight >= ti.static(1.0 - config.saturate_threshold)
 
           if ti.static(config.compute_visibility):
             if ti.simt.warp.any_nonzero(ti.u32(0xffffffff), ti.i32(alpha > ti.static(config.alpha_threshold))):
