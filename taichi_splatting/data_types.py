@@ -9,14 +9,13 @@ from torch.nn import functional as F
 
   
 @beartype
-@dataclass(frozen=True, eq=True)
+@dataclass(frozen=True, eq=True, kw_only=True)
 class RasterConfig:
   tile_size: int = 16
 
   # pixel tilin per thread in the backwards pass 
   pixel_stride: Tuple[int, int] = (2, 2)
 
-  margin_tiles: int = 3
 
   # clamp position to within this margin of the image for affine jaocbian
   clamp_margin: float = 0.15  
@@ -39,8 +38,6 @@ class RasterConfig:
   compute_point_heuristic: bool = False # implies compute_visibility
   compute_visibility: bool = False # compute visibility (pixels) for each gaussian
 
-
-  samples: int = 16
 
 
     

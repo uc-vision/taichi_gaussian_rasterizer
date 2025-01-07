@@ -7,8 +7,7 @@ import taichi as ti
 
 
 class NullExecutor:
-    def __init__(self, initializer, **kwargs):
-        initializer()
+    def __init__(self, **kwargs):
         self._threads = []
 
     def submit(self, fn, *args, **kwargs):
@@ -47,11 +46,9 @@ class TaichiQueue():
     
     executor = ThreadPoolExecutor if threaded else NullExecutor
 
-    cls.executor = executor(max_workers=1, thread_name_prefix="taichi",
-      initializer=partial(ti.init, *args, **kwargs))
+    cls.executor = executor(max_workers=1, thread_name_prefix="taichi")
+    cls.run_sync(partial(ti.init, *args, **kwargs))
 
-    return cls.executor
-  
   @staticmethod
   def thread_id():
     executor = TaichiQueue.queue()

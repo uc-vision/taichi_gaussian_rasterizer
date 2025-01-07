@@ -100,8 +100,7 @@ class Rendering:
     """ mask of when a point in the view is visible """
     return self._point_visibility > 0
     
-    
-
+  
   @cached_property
   def visible_indices(self) -> torch.Tensor:
     """ Indexes of visible points """

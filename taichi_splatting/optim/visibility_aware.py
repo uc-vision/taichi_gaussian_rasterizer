@@ -37,17 +37,16 @@ def update_visibility(running_vis: torch.Tensor,
                       beta: float = 0.9,
                       eps:float=1e-12):
 
-  # updated_vis = power_lerp(beta, visibility, running_vis[indexes], k=4)
+  updated_vis = power_lerp(beta, visibility, running_vis[indexes], k=2)
   #updated_vis = exp_lerp(beta, visibility, running_vis[indexes])
 
-  updated_vis = max_decaying(beta, visibility, running_vis[indexes])
+  # updated_vis = max_decaying(beta, visibility, running_vis[indexes])
   running_vis[indexes] = updated_vis
 
   # bias_correction = (1 - beta ** total_weight[indexes])
 
   weight = visibility / torch.clamp_min(updated_vis, eps)
-  # return saturate(weight)
-  return weight
+  return saturate(weight)
 
 
 def set_indexes(target:torch.Tensor, values:torch.Tensor, indexes:torch.Tensor):
@@ -61,7 +60,7 @@ def set_indexes(target:torch.Tensor, values:torch.Tensor, indexes:torch.Tensor):
 class VisibilityOptimizer(torch.optim.Optimizer):
   
   def __init__(self, kernels:types.ModuleType, param_groups:list[dict], lr=0.001, 
-               betas=(0.9, 0.999), eps=1e-16, vis_beta=0.9, vis_smooth:float=0.1, bias_correction=True):
+               betas=(0.9, 0.999), eps=1e-16, vis_beta=0.9, vis_smooth:float=0.01, bias_correction=True, grad_scale:float=1.0):
     
     assert lr > 0, f"Invalid learning rate: {lr}"
     assert eps > 0, f"Invalid epsilon: {eps}"
@@ -72,6 +71,7 @@ class VisibilityOptimizer(torch.optim.Optimizer):
 
     self.vis_beta = vis_beta
     self.vis_smooth = vis_smooth
+    self.grad_scale = grad_scale
     self.kernels = kernels
     super().__init__(param_groups, defaults)
 
@@ -87,8 +87,10 @@ class VisibilityOptimizer(torch.optim.Optimizer):
     groups = [make_group(group, self.state) for group in self.param_groups]
     n = groups[0].num_points
 
+
     total_weight = get_total_weight(groups[0].state, n, device=visibility.device)
     running_vis = get_running_vis(groups[0].state, n, device=visibility.device)
+
 
     weight = update_visibility(running_vis, visibility, indexes, total_weight, self.vis_beta)
     total_weight[indexes] += weight
@@ -99,13 +101,14 @@ class VisibilityOptimizer(torch.optim.Optimizer):
 
       assert group.num_points == n, f"param shape {group.num_points} != {n}"
       group = replace(group, grad=set_indexes(group.grad, 
-                        group.grad[indexes] / (visibility.unsqueeze(1) + self.vis_smooth), 
+                        group.grad[indexes] * self.grad_scale  / (visibility.unsqueeze(1) + self.vis_smooth), 
                           indexes))
 
       lr_step = weighted_step(group, weight, indexes, total_weight, self.kernels, basis)
 
-      # group.param[visible_indexes] -= lr_step * weight.sqrt().unsqueeze(1)
-      group.param[indexes] -= lr_step * weight.unsqueeze(1)
+      # group.param[indexes] -= lr_step * weight.sqrt().unsqueeze(1)
+      # group.param[indexes] -= lr_step * weight.unsqueeze(1)
+      group.param[indexes] -= lr_step * saturate(weight).unsqueeze(1)
 
 
 
@@ -113,7 +116,7 @@ class VisibilityOptimizer(torch.optim.Optimizer):
 class VisibilityAwareAdam(VisibilityOptimizer):
   def __init__(self, param_groups, lr=0.001, 
                betas=(0.9, 0.999), eps=1e-16, vis_beta=0.5, 
-               vis_smooth:float = 0.1, bias_correction=True):
+               vis_smooth:float = 0.01, bias_correction=True):
     super().__init__(fractional_adam, param_groups=param_groups,
                      lr=lr, betas=betas, eps=eps, vis_beta=vis_beta, 
                      vis_smooth=vis_smooth, bias_correction=bias_correction)
@@ -122,7 +125,7 @@ class VisibilityAwareAdam(VisibilityOptimizer):
 class VisibilityAwareLaProp(VisibilityOptimizer):
   def __init__(self, param_groups, lr=0.001, 
                betas=(0.9, 0.999), eps=1e-16, vis_beta=0.5, 
-               vis_smooth:float=0.1, bias_correction=True):
+               vis_smooth:float=0.01, bias_correction=True):
     
     
     super().__init__(fractional_laprop, param_groups=param_groups,

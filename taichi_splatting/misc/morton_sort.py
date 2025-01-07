@@ -3,7 +3,6 @@ import taichi as ti
 from taichi.math import vec3, uvec3, clamp, uvec3
 from taichi_splatting import cuda_lib   
 
-from taichi_splatting.taichi_lib.f32 import AABBox
 import torch
 
 from taichi_splatting.taichi_queue import TaichiQueue, queued
@@ -53,10 +52,10 @@ class Grid:
     return ti.cast(clamp(v, 0, self.size - 1), ti.u32)
 
 
-  @ti.func
-  def cell_bounds(self, cell:uvec3) -> AABBox:
-    lower, inc = self.get_inc()
-    return AABBox(lower + cell * inc, lower + (cell + 1) * inc)
+  # @ti.func
+  # def cell_bounds(self, cell:uvec3) -> AABBox:
+  #   lower, inc = self.get_inc()
+  #   return AABBox(lower + cell * inc, lower + (cell + 1) * inc)
 
   @ti.func
   def in_bounds(self, cell:uvec3) -> bool:

@@ -87,6 +87,8 @@ class ParameterClass():
     for name, params in kwargs.items():
       self.update_group(name, **params)
 
+    return {name: params['lr'] for name, params in kwargs.items()}
+
 
   def state_dict(self) -> Dict:
     return {
@@ -214,7 +216,8 @@ class ParameterClass():
       return self.tensors[idx]
     else:
       state = (self.tensor_state[idx], self.other_state)
-      return ParameterClass(self.tensors[idx], self.parameter_groups, state, optimizer=type(self.optimizer), **self.optim_kwargs)
+      return ParameterClass(self.tensors[idx], self.parameter_groups, 
+                            state, optimizer=type(self.optimizer), **self.optim_kwargs)
   
   def append_tensors(self, tensors:TensorDict, tensor_state:Optional[TensorDict]=None):
     if tensor_state is not None:

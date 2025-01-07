@@ -36,8 +36,7 @@ def scalar_kernel(betas=(0.9, 0.999), eps=1e-16, bias_correction=True):
         avg = lerp(beta1 ** w, exp_avg[idx, j], g)
         avg_sq = lerp(beta2 ** w, exp_avg_sq[idx, j], g * g)
 
-        lr_step[i, j] = ti.math.atan2(avg, ti.sqrt(avg_sq)) * bias_factor * lr
-
+        lr_step[i, j] = avg / ti.max(ti.sqrt(avg_sq),  eps) * bias_factor * lr
         exp_avg[idx, j] = avg
         exp_avg_sq[idx, j] = avg_sq
 
