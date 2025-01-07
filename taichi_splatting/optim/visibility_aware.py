@@ -7,7 +7,7 @@ from taichi_splatting.optim import fractional_adam, fractional_laprop
 from taichi_splatting.optim.fractional import make_group, saturate, weighted_step
 from taichi_splatting.optim.util import get_total_weight
 
-def get_running_vis(state:dict,  n:float, device:torch.device):
+def get_running_vis(state:dict,  n:int, device:torch.device):
   if 'running_vis' not in state:
     state['running_vis'] = torch.zeros( (n,), device=device, dtype=torch.float32)
 
@@ -38,15 +38,10 @@ def update_visibility(running_vis: torch.Tensor,
                       eps:float=1e-12):
 
   updated_vis = power_lerp(beta, visibility, running_vis[indexes], k=2)
-  #updated_vis = exp_lerp(beta, visibility, running_vis[indexes])
-
-  # updated_vis = max_decaying(beta, visibility, running_vis[indexes])
   running_vis[indexes] = updated_vis
 
-  # bias_correction = (1 - beta ** total_weight[indexes])
-
   weight = visibility / torch.clamp_min(updated_vis, eps)
-  return saturate(weight)
+  return weight
 
 
 def set_indexes(target:torch.Tensor, values:torch.Tensor, indexes:torch.Tensor):
@@ -106,8 +101,7 @@ class VisibilityOptimizer(torch.optim.Optimizer):
 
       lr_step = weighted_step(group, weight, indexes, total_weight, self.kernels, basis)
 
-      # group.param[indexes] -= lr_step * weight.sqrt().unsqueeze(1)
-      # group.param[indexes] -= lr_step * weight.unsqueeze(1)
+      # group.param[visible_indexes] -= lr_step * weight.sqrt().unsqueeze(1)
       group.param[indexes] -= lr_step * saturate(weight).unsqueeze(1)
 
 

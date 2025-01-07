@@ -39,15 +39,15 @@ def parse_args():
   parser.add_argument('--target', type=int, default=None)
   parser.add_argument('--prune', action='store_true', help='enable pruning (equivalent to --target=n)')
   parser.add_argument('--iters', type=int, default=2000)
-  parser.add_argument('--max_lr', type=float, default=1.0)
+  parser.add_argument('--max_lr', type=float, default=0.5)
   parser.add_argument('--min_lr', type=float, default=0.1)
 
   parser.add_argument('--epoch', type=int, default=8, help='base epoch size (increases with t)')
-  parser.add_argument('--max_epoch', type=int, default=16)
+  parser.add_argument('--max_epoch', type=int, default=32)
 
-  parser.add_argument('--prune_rate', type=float, default=0.02, help='Rate of pruning proportional to number of points')
-  parser.add_argument('--opacity_reg', type=float, default=0.0001)
-  parser.add_argument('--scale_reg', type=float, default=10.0)
+  parser.add_argument('--prune_rate', type=float, default=0.025, help='Rate of pruning proportional to number of points')
+  parser.add_argument('--opacity_reg', type=float, default=0.00001)
+  parser.add_argument('--scale_reg', type=float, default=0.1)
 
   parser.add_argument('--threaded', action='store_true', help='Use taichi dedicated thread')
 
@@ -111,9 +111,11 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
         image_size=(w, h), 
         config=config)
       
-  
+      image = raster.image.sigmoid()
+
+      
       scale = torch.exp(gaussians.log_scaling) / min(w, h)
-      loss = (torch.nn.functional.l1_loss(raster.image, ref_image) 
+      loss = (torch.nn.functional.mse_loss(image, ref_image) 
               + opacity_reg * gaussians.opacity.mean()
               + scale_reg * scale.pow(2).mean())
 
@@ -143,7 +145,7 @@ def train_epoch(opt:FractionalAdam, params:ParameterClass, ref_image,
     visibility += raster.visibility
 
 
-  return raster.image, (point_heuristic[:, 0], point_heuristic[:, 1]) 
+  return image, (point_heuristic[:, 0], point_heuristic[:, 1]) 
 
 
 def make_epochs(total_iters, first_epoch, max_epoch):
@@ -263,11 +265,11 @@ def main():
   
   parameter_groups = dict(
     position=dict(lr=lr_range[0], type='local_vector'),
-    log_scaling=dict(lr=0.05),
+    log_scaling=dict(lr=0.1),
 
     rotation=dict(lr=1.0),
-    alpha_logit=dict(lr=0.05),
-    feature=dict(lr=0.025, type='vector')
+    alpha_logit=dict(lr=0.1),
+    feature=dict(lr=0.1, type='vector')
   )
   
   # params = ParameterClass(gaussians.to_tensordict(), 
@@ -275,7 +277,7 @@ def main():
 
   params = ParameterClass(gaussians.to_tensordict(), 
         parameter_groups, optimizer=VisibilityAwareLaProp, 
-        vis_smooth=1.0, vis_beta=0.8, betas=(0.9, 0.9), eps=1e-16, bias_correction=True)
+        vis_smooth=0.1, vis_beta=0.8, betas=(0.9, 0.9), eps=1e-16, bias_correction=True)
   
   keys = set(params.keys())
   trainable = set(params.optimized_keys())
