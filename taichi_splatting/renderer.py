@@ -154,7 +154,6 @@ def render_gaussians(
     
   """
 
-
   gaussians2d, depths, indexes = project_to_image(gaussians, camera_params, config)
 
   if use_sh:

@@ -12,7 +12,7 @@ from taichi_splatting.mapper.tile_mapper import map_to_tiles
 from taichi_splatting.taichi_queue import queued
 from taichi_splatting.taichi_lib.conversions import torch_taichi
 
-from .forward import RasterConfig, forward_kernel, query_visibility_kernel
+from .forward import RasterConfig, forward_kernel
 from .backward import backward_kernel
 
 RasterOut = NamedTuple('RasterOut', [
@@ -22,53 +22,6 @@ RasterOut = NamedTuple('RasterOut', [
   ('visibility', Optional[torch.Tensor])
 ])
 
-@cache
-def query_visibility_function(config: RasterConfig, dtype=torch.float32):
-  query_kernel = query_visibility_kernel(config, dtype=torch_taichi[dtype])
-
-  def _query_visibility(gaussians: torch.Tensor, 
-                       overlap_to_point: torch.Tensor, tile_overlap_ranges: torch.Tensor,
-                       image_size: Tuple[Integral, Integral]) -> torch.Tensor:
-    visibility = torch.zeros((gaussians.shape[0]), dtype=dtype, device=gaussians.device)
-    query_kernel(gaussians, tile_overlap_ranges, overlap_to_point, visibility, ti.math.ivec2(image_size))
-
-    return visibility
-  
-  return _query_visibility
-
-@beartype
-@torch.no_grad()
-def query_visibility_with_tiles(gaussians2d: torch.Tensor, 
-                     overlap_to_point: torch.Tensor, tile_overlap_ranges: torch.Tensor,
-                     image_size: Tuple[Integral, Integral], 
-                     config: RasterConfig, dtype=torch.float32) -> torch.Tensor:
-  """ Query visibility for a single image with tile overlap information. """
-  query_kernel = query_visibility_function(config, dtype=dtype)
-  return query_kernel(gaussians2d, 
-                      overlap_to_point, tile_overlap_ranges.view(-1, 2),
-                      image_size)
-
-@beartype
-def query_visibility(gaussians2d: torch.Tensor, depth: torch.Tensor, image_size: Tuple[Integral, Integral], 
-                     config: RasterConfig, dtype=torch.float32) -> torch.Tensor:
-  """ Query visibility for a single image.
-  Args:
-     gaussians2d: (N, 7)  packed gaussians, N is the number of gaussians
-     depth: (N, 1)  depths, N is the number of gaussians
-     image_size: (2, ) tuple of ints, (width, height)
-     config: Config - configuration parameters for rasterization
-     dtype: torch.dtype, default is torch.float32
-  Returns:
-       visibility: (N, ) torch tensor, where N is the number of gaussians
-  """
-
-
-  assert gaussians2d.shape[0] == depth.shape[0], \
-    f"Size mismatch: got {gaussians2d.shape}, {depth.shape}"
-  
-  overlap_to_point, tile_overlap_ranges = map_to_tiles(gaussians2d, depth, image_size=image_size, config=config)
-  return query_visibility_with_tiles(gaussians2d, overlap_to_point, tile_overlap_ranges,
-                                    image_size, config, dtype)
 
 
 @cache

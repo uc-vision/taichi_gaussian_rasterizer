@@ -6,7 +6,7 @@ import torch
 import taichi as ti
 from taichi_splatting.benchmarks.util import benchmarked
 
-from taichi_splatting.rasterizer.function import query_visibility, rasterize_with_tiles, RasterConfig
+from taichi_splatting.rasterizer.function import  rasterize_with_tiles, RasterConfig
 from taichi_splatting.misc.renderer2d import project_gaussians2d
 from taichi_splatting.taichi_queue import TaichiQueue, taichi_queue
 from taichi_splatting.tests.random_data import random_2d_gaussians
@@ -71,12 +71,6 @@ def bench_rasterizer(args):
     
     if not args.skip_forward:
       benchmarked('forward', forward, profile=args.profile, iters=args.iters * 4)  
-
-      query_vis = partial(query_visibility, gaussians2d=gaussians2d, 
-      tile_overlap_ranges=tile_ranges.view(-1, 2), overlap_to_point=overlap_to_point.to(args.device),
-      image_size=args.image_size, config=config)
-      
-      benchmarked('query_visibility', query_vis, profile=args.profile, iters=args.iters * 4)  
 
       forward_vis = partial(rasterize_with_tiles, gaussians2d=gaussians2d, features=gaussians.feature, 
         tile_overlap_ranges=tile_ranges.view(-1, 2), overlap_to_point=overlap_to_point,
