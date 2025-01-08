@@ -42,8 +42,10 @@ def compare(name, x, y, **kwargs):
     print(f"y={y}")
 
     atol = (x - y).abs().max().item()
-
-    raise AssertionError(f"{name} mismatch with atol={atol}")
+    rtol = (x - y).abs().max().item() / x.abs().max().item()
+    raise AssertionError(f"{name} mismatch with atol={atol} rtol={rtol}")
+  
+  return True
 
 def compare_outputs(out1, out2):
   points1, depth1, vis_idx1 = out1

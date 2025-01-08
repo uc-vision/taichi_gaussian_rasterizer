@@ -51,7 +51,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
       in_bounds = pixel.y < camera_height and pixel.x < camera_width
 
       accum_features = feature_vec(0.0)
-      total_weight = 0.0 if in_bounds else 1.0
+      total_weight = dtype(0.0) if in_bounds else dtype(1.0)
       saturated = False
 
       start_offset, end_offset = tile_overlap_ranges[tile_id]
@@ -93,7 +93,7 @@ def forward_kernel(config: RasterConfig, feature_size: int, dtype=ti.f32):
               ti.i32(saturated)):
             break
 
-          weight = 0.0
+          weight = dtype(0.0)
           mean, axis, sigma, point_alpha = Gaussian2D.unpack(tile_point[in_group_idx])
 
           gaussian_alpha = pdf(pixelf, mean, axis, sigma)

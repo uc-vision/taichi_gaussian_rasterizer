@@ -1,5 +1,6 @@
 
 from tqdm import tqdm
+from taichi_splatting.tests.test_projection import compare
 from taichi_splatting.data_types import RasterConfig
 from taichi_splatting.misc.renderer2d import project_gaussians2d
 from taichi_splatting.rasterizer.function import rasterize
@@ -26,6 +27,8 @@ def parse_args():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--max_n', type=int, default=10000)
     return parser.parse_args()
+
+
 
 
 def test_visibility(debug=False, max_n=10000):
@@ -57,8 +60,8 @@ def test_visibility(debug=False, max_n=10000):
       err = raster.image.sum()
       err.backward()
 
-      visibility_grad = gaussians.feature.grad[:, 0:1]
-      assert torch.allclose(visibility_grad, raster.visibility)
+      visibility_grad = gaussians.feature.grad[:, 0]
+      assert compare("visibility", visibility_grad, raster.visibility)
 
 
 if __name__ == "__main__":

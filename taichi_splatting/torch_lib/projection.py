@@ -173,7 +173,9 @@ def apply(position, log_scaling, rotation, alpha_logit,
   
   sigma, v1, v2 = eig(cov)
   alpha = alpha_logit.sigmoid()
-  scale = sigma * torch.sqrt(torch.log(alpha_threshold / alpha))
+
+
+  scale = sigma * torch.sqrt(2 * torch.log(alpha / alpha_threshold))
   lower, upper = ellipse_bounds(mean, v1 * scale[:, 0:1], v2 * scale[:, 1:2])
 
     
