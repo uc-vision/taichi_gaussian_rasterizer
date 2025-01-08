@@ -37,7 +37,7 @@ def update_visibility(running_vis: torch.Tensor,
                       beta: float = 0.9,
                       eps:float=1e-12):
 
-  updated_vis = power_lerp(beta, visibility, running_vis[indexes], k=2)
+  updated_vis = power_lerp(beta, visibility, running_vis[indexes], k=4)
   running_vis[indexes] = updated_vis
 
   weight = visibility / torch.clamp_min(updated_vis, eps)
@@ -48,8 +48,6 @@ def set_indexes(target:torch.Tensor, values:torch.Tensor, indexes:torch.Tensor):
   result = torch.zeros_like(target)
   result[indexes] = values
   return result
-
-
 
 
 class VisibilityOptimizer(torch.optim.Optimizer):
@@ -101,9 +99,8 @@ class VisibilityOptimizer(torch.optim.Optimizer):
 
       lr_step = weighted_step(group, weight, indexes, total_weight, self.kernels, basis)
 
-      # group.param[visible_indexes] -= lr_step * weight.sqrt().unsqueeze(1)
+      # group.param[indexes] -= lr_step * weight.unsqueeze(1)
       group.param[indexes] -= lr_step * saturate(weight).unsqueeze(1)
-
 
 
 
