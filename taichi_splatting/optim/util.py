@@ -3,19 +3,19 @@ import torch
 
 
 def get_vector_state(state:dict, param: torch.Tensor):
-  if 'exp_avg' not in state:
-    state['exp_avg'] = torch.zeros_like(param.view(param.shape[0], -1))
-    state['exp_avg_sq'] = torch.zeros((param.shape[0],), dtype=param.dtype, device=param.device)
+  if 'v' not in state:
+    state['v'] = torch.zeros_like(param.view(param.shape[0], -1))
+    state['m'] = torch.zeros((param.shape[0],), dtype=param.dtype, device=param.device)
 
-  return state['exp_avg'], state['exp_avg_sq']
+  return state['v'], state['m']
 
 
 def get_scalar_state(state:dict, param: torch.Tensor):
-  if 'exp_avg' not in state:
-    state['exp_avg'] = torch.zeros_like(param.view(param.shape[0], -1))
-    state['exp_avg_sq'] = torch.zeros_like(param.view(param.shape[0], -1))
+  if 'v' not in state:
+    state['v'] = torch.zeros_like(param.view(param.shape[0], -1))
+    state['m'] = torch.zeros_like(param.view(param.shape[0], -1))
 
-  return state['exp_avg'], state['exp_avg_sq']
+  return state['v'], state['m']
 
 def get_total_weight(state:dict, n:int, device:torch.device):
   if 'total_weight' not in state:

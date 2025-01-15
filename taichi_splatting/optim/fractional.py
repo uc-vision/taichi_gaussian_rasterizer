@@ -1,14 +1,12 @@
 from dataclasses import dataclass
-from functools import cache, partial
 import types
-from beartype import beartype
 import torch
 from typing import Optional, Tuple
 
 from taichi_splatting.optim import fractional_adam 
 from taichi_splatting.optim import fractional_laprop 
 
-from .util import  get_vector_state, get_scalar_state, get_total_weight, flatten_param
+from .util import  get_vector_state, get_scalar_state, get_total_weight
 
 @dataclass 
 class Group:
@@ -28,6 +26,7 @@ class Group:
   
   # Learning rate masking
   mask_lr: Optional[torch.Tensor]
+  point_lr: Optional[torch.Tensor]
 
 
 
@@ -37,12 +36,14 @@ class Group:
     param_stats = _format_tensor_stats("param", self.param)
     grad_stats = _format_tensor_stats("grad", self.grad)
     mask_lr_stats = _format_tensor_stats("mask_lr", self.mask_lr)
+    point_lr_stats = _format_tensor_stats("point_lr", self.point_lr)
 
     content = (
         f"{param_stats},\n"
         f"{grad_stats},\n"
         f"state=[\n{indent}{state_str}\n],\n"
         f"{mask_lr_stats}"
+        f"{point_lr_stats}"
     )
 
     return (f"Group({self.name}, type={self.type}, "
@@ -97,7 +98,9 @@ def make_group(group, state) -> Group:
       bias_correction=group["bias_correction"],
       
       # Learning rate masking
-      mask_lr=group["mask_lr"]
+      mask_lr=group["mask_lr"],
+      point_lr=group["point_lr"]
+
   )
 
 
@@ -111,10 +114,10 @@ def weighted_step(group:Group,
     
 
   if group.type in ["vector", "local_vector"]:
-    avg_exp, avg_exp_sq = get_vector_state(group.state, group.param)
+    m, v = get_vector_state(group.state, group.param)
     kernel = module.vector_kernel(betas=group.betas, eps=group.eps, dims=group.param.shape[1], bias_correction=group.bias_correction)
   elif group.type == "scalar":
-    avg_exp, avg_exp_sq = get_scalar_state(group.state, group.param)
+    m, v = get_scalar_state(group.state, group.param)
     kernel = module.scalar_kernel(betas=group.betas, eps=group.eps, bias_correction=group.bias_correction)
   else:
     raise ValueError(f"unknown group type {group.type}")
@@ -128,7 +131,7 @@ def weighted_step(group:Group,
   lr_step = group.param.new_zeros(visible_indexes.shape[0], group.param.shape[1])
   kernel(lr_step, 
         visible_indexes, visible_weight,
-        avg_exp, avg_exp_sq, total_weight,
+        m, v, total_weight,
         group.grad, group.lr)
 
   if group.type == "local_vector":
@@ -136,6 +139,10 @@ def weighted_step(group:Group,
 
   if group.mask_lr is not None:
     lr_step *= group.mask_lr.view(-1).unsqueeze(0)
+
+  # per row learning rate
+  if group.point_lr is not None:
+    lr_step *= group.point_lr[visible_indexes].unsqueeze(1)
 
   return lr_step
 
@@ -153,7 +160,7 @@ class FractionalOpt(torch.optim.Optimizer):
     assert 0.0 <= betas[0] < 1.0, f"Invalid beta1: {betas[0]}"
     assert 0.0 <= betas[1] < 1.0, f"Invalid beta2: {betas[1]}"
 
-    defaults = dict(lr=lr, betas=betas, eps=eps, mask_lr=None, type="scalar", bias_correction=bias_correction)  
+    defaults = dict(lr=lr, betas=betas, eps=eps, mask_lr=None, point_lr=None, type="scalar", bias_correction=bias_correction)  
 
 
     self.kernels = kernels

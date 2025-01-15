@@ -58,6 +58,10 @@ class Rendering:
   @cached_property
   def ndc_median_depth(self) -> torch.Tensor:
     return ndc_depth(self.median_depth, self.camera.near_plane, self.camera.far_plane)
+  
+  @property
+  def ndc_point_depth(self) -> torch.Tensor:
+    return ndc_depth(self.point_depth, self.camera.near_plane, self.camera.far_plane)
 
   @property
   def point_scale(self):

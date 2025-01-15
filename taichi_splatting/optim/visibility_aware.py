@@ -60,7 +60,7 @@ class VisibilityOptimizer(torch.optim.Optimizer):
     assert 0.0 <= betas[0] < 1.0, f"Invalid beta1: {betas[0]}"
     assert 0.0 <= betas[1] < 1.0, f"Invalid beta2: {betas[1]}"
     assert 0.0 <= vis_beta < 1.0, f"Invalid visibility beta: {vis_beta}"
-    defaults = dict(lr=lr, betas=betas, eps=eps, mask_lr=None, type="scalar", bias_correction=bias_correction)  
+    defaults = dict(lr=lr, betas=betas, eps=eps, mask_lr=None, point_lr=None, type="scalar", bias_correction=bias_correction)  
 
     self.vis_beta = vis_beta
     self.vis_smooth = vis_smooth

@@ -15,8 +15,8 @@ def scalar_kernel(betas=(0.9, 0.999), eps=1e-16, bias_correction=True):
              indexes: ti.types.ndarray(dtype=ti.int64, ndim=1),    # M Visible indexes
              weight: ti.types.ndarray(dtype=ti.f32, ndim=1),       # M weight of each visible index
 
-             exp_avg: ti.types.ndarray(dtype=ti.f32, ndim=2),      # N x D - Running average of gradient
-             exp_avg_sq: ti.types.ndarray(dtype=ti.f32, ndim=2),   # N x D - Running average of gradient squared
+             m_arr: ti.types.ndarray(dtype=ti.f32, ndim=2),      # N x D - Running average of gradient
+             v_arr: ti.types.ndarray(dtype=ti.f32, ndim=2),   # N x D - Running average of gradient squared
              total_weight: ti.types.ndarray(dtype=ti.f32, ndim=1), # N step for each point (total weight)
              grad: ti.types.ndarray(dtype=ti.f32, ndim=2),          # N x D Gradient input
 
@@ -33,12 +33,13 @@ def scalar_kernel(betas=(0.9, 0.999), eps=1e-16, bias_correction=True):
       for j in range(lr_step.shape[1]):
         g = grad[idx, j]
 
-        avg = lerp(beta1 ** w, exp_avg[idx, j], g)
-        avg_sq = lerp(beta2 ** w, exp_avg_sq[idx, j], g * g)
+        m = lerp(beta1 ** w, m_arr[idx, j], g)
+        v = lerp(beta2 ** w, v_arr[idx, j], g * g)
 
-        lr_step[i, j] = avg / ti.max(ti.sqrt(avg_sq),  eps) * bias_factor * lr
-        exp_avg[idx, j] = avg
-        exp_avg_sq[idx, j] = avg_sq
+        lr_step[i, j] = m / ti.max(ti.sqrt(v),  eps) * bias_factor * lr
+        
+        m_arr[idx, j] = m
+        v_arr[idx, j] = v
 
 
   return kernel
@@ -55,8 +56,8 @@ def vector_kernel(betas=(0.9, 0.999), eps=1e-16, dims=3, bias_correction=True):
              indexes: ti.types.ndarray(dtype=ti.int64, ndim=1),     # M visible indexes
              weight: ti.types.ndarray(dtype=ti.f32, ndim=1),        # M weight of each visible index
 
-             exp_avg: ti.types.ndarray(dtype=vec, ndim=1),          # N x D - Running average of gradient
-             exp_avg_sq: ti.types.ndarray(dtype=ti.f32, ndim=1),    # N  - Running norm of gradient 
+             m_arr: ti.types.ndarray(dtype=vec, ndim=1),          # N x D - Running average of gradient
+             v_arr: ti.types.ndarray(dtype=ti.f32, ndim=1),    # N  - Running norm of gradient 
              total_weight: ti.types.ndarray(dtype=ti.f32, ndim=1),  # N step for each point (total weight)
              grad: ti.types.ndarray(dtype=vec, ndim=1),             # N x D - Gradient input
 
@@ -71,15 +72,15 @@ def vector_kernel(betas=(0.9, 0.999), eps=1e-16, dims=3, bias_correction=True):
                       if ti.static(bias_correction) else 1.0)
 
       g = grad[idx]
-      avg = lerp(beta1 ** w, exp_avg[idx], g)
+      m = lerp(beta1 ** w, m_arr[idx], g)
 
       norm = ti.math.dot(g, g)
-      avg_sq = lerp(beta2 ** w, exp_avg_sq[idx], norm)
+      v = lerp(beta2 ** w, v_arr[idx], norm)
 
-      lr_step[i] = (avg / ti.max(ti.sqrt(avg_sq),  eps)) * bias_factor * lr
+      lr_step[i] = (m / ti.max(ti.sqrt(v),  eps)) * bias_factor * lr
 
-      exp_avg[idx] = avg
-      exp_avg_sq[idx] = avg_sq
+      m_arr[idx] = m
+      v_arr[idx] = v
 
   return kernel
 
